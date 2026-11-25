@@ -72,6 +72,38 @@ func Connect(request Request) error {
 	return Run(request.SSH.Binary, args, env)
 }
 
+// Passthrough runs the plain ssh for a target that is not in KeePass (D-030),
+// with the arguments as typed minus zzh's own options.
+//
+// With "--key" (privateKey not nil) the chosen KeePass key is served by the
+// zzh agent for this connection, exactly as for a KeePass host, so it never
+// touches the disk (D-037). Nothing else is added: the system ssh
+// configuration still applies, as expected for an unknown host.
+func Passthrough(binary string, invocation *sshcli.Invocation, rawArgs []string, privateKey []byte, keyName string) error {
+	if privateKey == nil {
+		args := rawArgs
+		if invocation.HasZzhOptions() {
+			args = invocation.SSHArgs()
+		}
+		return Run(binary, args, nil)
+	}
+
+	endpoint, err := startAgent(privateKey, keyName)
+	if err != nil {
+		return err
+	}
+	defer endpoint.Close()
+
+	// An IdentityAgent typed by the user wins; otherwise ssh is pointed at
+	// the zzh agent through SSH_AUTH_SOCK (see BuildArgs for why the pipe
+	// path is not passed directly).
+	var extra []string
+	if !invocation.HasConfigKey("IdentityAgent") {
+		extra = []string{"-o", "IdentityAgent=SSH_AUTH_SOCK"}
+	}
+	return Run(binary, invocation.SSHArgs(extra...), []string{"SSH_AUTH_SOCK=" + endpoint.Path})
+}
+
 // startAgent serves one private key on a new private endpoint.
 func startAgent(privatePEM []byte, comment string) (*localipc.Endpoint, error) {
 	privateKey, err := sshkey.ParsePrivateKey(privatePEM)

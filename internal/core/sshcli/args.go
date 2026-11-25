@@ -41,6 +41,15 @@ type Invocation struct {
 	// interactive shell.
 	Command []string
 
+	// KeyName is the KeePass key chosen with "--key" for this connection
+	// only, replacing the key associated with the host (if any). Empty when
+	// not given.
+	KeyName string
+
+	// zzhOptions is true when the command line contained zzh's own long
+	// options: they must then be removed before handing it to a plain ssh.
+	zzhOptions bool
+
 	// usedLetters and usedConfigKeys remember what the user set explicitly,
 	// so that zzh does not add a conflicting value of its own.
 	usedLetters    map[byte]bool
@@ -70,6 +79,10 @@ func (inv *Invocation) HasConfigKey(key string) bool {
 //   - after the host name, the first non-option argument starts the remote
 //     command, and everything from there on belongs to the command, even
 //     tokens that look like options ("zzh web01 ls -la").
+//
+// zzh's own options are long ones ("--key pippo", "--key=pippo"). ssh has
+// no long options, so before the remote command any "--name" is zzh's and
+// cannot be confused with an ssh option (D-037).
 func ParseInvocation(args []string) (*Invocation, error) {
 	inv := &Invocation{
 		usedLetters:    map[byte]bool{},
@@ -84,6 +97,15 @@ func ParseInvocation(args []string) (*Invocation, error) {
 		if !optionsTerminated && arg == "--" {
 			optionsTerminated = true
 			index++
+			continue
+		}
+
+		if !optionsTerminated && strings.HasPrefix(arg, "--") {
+			consumed, err := inv.parseZzhOption(args, index)
+			if err != nil {
+				return nil, err
+			}
+			index += consumed
 			continue
 		}
 
@@ -113,6 +135,55 @@ func ParseInvocation(args []string) (*Invocation, error) {
 	}
 
 	return inv, nil
+}
+
+// parseZzhOption handles one of zzh's long options and returns how many
+// arguments it consumed (2 for "--key pippo", 1 for "--key=pippo").
+func (inv *Invocation) parseZzhOption(args []string, index int) (int, error) {
+	name, value, inline := strings.Cut(strings.TrimPrefix(args[index], "--"), "=")
+
+	switch name {
+	case "key":
+		consumed := 1
+		if !inline {
+			if index+1 >= len(args) {
+				return 0, errors.New("--key requires a key name")
+			}
+			value = args[index+1]
+			consumed = 2
+		}
+		if value == "" {
+			return 0, errors.New("--key requires a key name")
+		}
+		inv.KeyName = value
+		inv.zzhOptions = true
+		return consumed, nil
+
+	default:
+		return 0, fmt.Errorf("unknown zzh option --%s", name)
+	}
+}
+
+// SSHArgs rebuilds the command line for a plain ssh, without zzh's own
+// options: the user's ssh options, then extraOptions, "--", the destination
+// (with its "user@") and the remote command. The user's options come first so
+// that they win (ssh keeps the first value); the "--" keeps a remote command
+// starting with "-" from being read as an ssh option.
+func (inv *Invocation) SSHArgs(extraOptions ...string) []string {
+	destination := inv.Target
+	if inv.User != "" {
+		destination = inv.User + "@" + inv.Target
+	}
+
+	args := append([]string(nil), inv.Options...)
+	args = append(args, extraOptions...)
+	args = append(args, "--", destination)
+	return append(args, inv.Command...)
+}
+
+// HasZzhOptions reports whether zzh's own options were given.
+func (inv *Invocation) HasZzhOptions() bool {
+	return inv.zzhOptions
 }
 
 // parseOptionGroup handles one argument starting with "-", which may contain

@@ -42,8 +42,9 @@ import (
 // name and the version (see version.go).
 const usage = `
 Usage:
-  zzh [--db name] <name> [ssh options] [command]
+  zzh [--db name] <name> [--key k] [ssh options] [command]
                                   connect to the host stored as <name>
+                                  (--key: use the KeePass key k this time)
   zzh [--db name] ls [--tag name]...
                                   list the hosts stored in KeePass
   zzh [--db name] add <name> <[user@]address[:port]> [--user u] [--port n]
@@ -109,7 +110,8 @@ lock.max_lifetime, daemon.autostart), otherwise it is asked on the terminal.
 
 Every classic ssh option (-L, -R, -D, -J, -v, -t, -o ...) can be used
 before or after <name> and is passed to ssh unchanged. Options typed on the
-command line always win over the values stored in KeePass.
+command line always win over the values stored in KeePass: "user@<name>" or
+-l changes the user, -p the port, --key the key, for that connection only.
 
 Developed by Massimiliano Dal Cero - DRIFT Linux
 https://www.linkedin.com/in/dalcero/
@@ -273,20 +275,34 @@ func runConnect(options globalOptions, args []string) error {
 		return err
 	}
 
-	// Not in KeePass: behave like ssh, with the arguments exactly as typed
-	// and the system ssh configuration, keys and agent (D-030).
+	// "--key <name>" picks a KeePass key for this connection only, instead
+	// of the one associated with the host, and also works for hosts that
+	// are not in KeePass (D-037). It is read now, while the vault is open.
+	var chosenKey []byte
+	if invocation.KeyName != "" {
+		chosenKey, err = v.PrivateKey(invocation.KeyName)
+		if err != nil {
+			return err
+		}
+	}
+
+	// Not in KeePass: behave like ssh, with the arguments as typed and the
+	// system ssh configuration (D-030).
 	if !found {
 		if !loaded.Config.SSH.PassthroughUnknownHosts {
 			return fmt.Errorf("host %q is not in KeePass (neither a name nor an address)", invocation.Target)
 		}
 		fmt.Fprintf(os.Stderr, "zzh: %q is not in KeePass, running plain ssh (save it with \"zzh add\")\n", invocation.Target)
-		return connect.Run(loaded.Config.SSH.Binary, args, nil)
+		return connect.Passthrough(loaded.Config.SSH.Binary, invocation, args, chosenKey, invocation.KeyName)
 	}
 
 	// The private key is read now, while the vault is open; the connection
 	// serves it to ssh from memory (D-029).
 	var privateKey []byte
 	switch {
+	case chosenKey != nil:
+		privateKey = chosenKey
+		host.KeyName = invocation.KeyName
 	case host.KeyName != "":
 		privateKey, err = v.PrivateKey(host.KeyName)
 		if err != nil {

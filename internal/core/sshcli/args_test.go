@@ -124,3 +124,62 @@ func TestParseInvocationErrors(t *testing.T) {
 		})
 	}
 }
+
+func TestParseZzhKeyOption(t *testing.T) {
+	cases := []struct {
+		name    string
+		args    []string
+		key     string
+		target  string
+		options []string
+		command []string
+	}{
+		{"after host", []string{"dd.lan", "--key", "pippo"}, "pippo", "dd.lan", nil, nil},
+		{"before host, inline", []string{"--key=pippo", "-p", "2222", "dd.lan"}, "pippo", "dd.lan", []string{"-p", "2222"}, nil},
+		{"with user and command", []string{"root@dd.lan", "--key", "pippo", "uptime"}, "pippo", "dd.lan", nil, []string{"uptime"}},
+		// After the remote command started, --key belongs to the command.
+		{"inside the command", []string{"dd.lan", "mysql", "--key", "x"}, "", "dd.lan", nil, []string{"mysql", "--key", "x"}},
+		// After "--" nothing is an option any more.
+		{"after double dash", []string{"dd.lan", "--", "--key", "x"}, "", "dd.lan", nil, []string{"--key", "x"}},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			inv, err := ParseInvocation(tc.args)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if inv.KeyName != tc.key || inv.Target != tc.target ||
+				!reflect.DeepEqual(inv.Options, tc.options) || !reflect.DeepEqual(inv.Command, tc.command) {
+				t.Fatalf("got key=%q target=%q options=%q command=%q", inv.KeyName, inv.Target, inv.Options, inv.Command)
+			}
+			if inv.HasZzhOptions() != (tc.key != "") {
+				t.Fatalf("HasZzhOptions must reflect --key")
+			}
+		})
+	}
+}
+
+func TestParseZzhOptionErrors(t *testing.T) {
+	for _, args := range [][]string{
+		{"dd.lan", "--key"},
+		{"dd.lan", "--key="},
+		{"dd.lan", "--unknown"},
+	} {
+		if _, err := ParseInvocation(args); err == nil {
+			t.Errorf("%q: expected an error", args)
+		}
+	}
+}
+
+// The plain ssh receives the same command line without zzh's options.
+func TestSSHArgs(t *testing.T) {
+	inv, err := ParseInvocation([]string{"-v", "root@dd.lan", "--key", "pippo", "-p2222", "ls", "-la"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	expected := []string{"-v", "-p", "2222", "--", "root@dd.lan", "ls", "-la"}
+	if got := inv.SSHArgs(); !reflect.DeepEqual(got, expected) {
+		t.Fatalf("expected %q, got %q", expected, got)
+	}
+}

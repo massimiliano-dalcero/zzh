@@ -207,8 +207,13 @@ $env:CGO_ENABLED = "0"; go build -trimpath -ldflags "-s -w" -o zzh.exe ./cmd/zzh
 ```
 
 `-trimpath -ldflags "-s -w"` produce a smaller, reproducible binary;
-`CGO_ENABLED=0` makes it fully static. To embed a version shown by
-`zzh version`, add `-X main.version=v0.9.0` inside `-ldflags`.
+`CGO_ENABLED=0` makes it fully static.
+
+The version is defined in one place, `releaseVersion` in
+`cmd/zzh/version.go`. A binary built from a git checkout also shows the
+commit it comes from (`zzh v0.9.1+4a0cc78`, `.dirty` with uncommitted
+changes); add `-buildvcs=false` to get exactly the release version, as the
+published binaries do.
 
 ### Putting zzh in the PATH
 
@@ -338,7 +343,7 @@ You can keep the database open in KeePassXC while using zzh:
 ## Connecting
 
 ```sh
-zzh [--db name] <target> [ssh options] [command]
+zzh [--db name] <target> [--key name] [ssh options] [command]
 ```
 
 ### Finding the target
@@ -364,8 +369,17 @@ zzh web01 -L 8080:localhost:80 -N      # local forward
 zzh -D 1080 bastion                    # SOCKS proxy
 zzh root@web01                         # other user, for this connection only
 zzh web01 -p 2222 -v                   # other port, verbose
+zzh web01 --key spare                  # another KeePass key, for this connection only
+zzh root@10.0.0.99 --key spare         # a host not in KeePass, with a KeePass key
 zzh web01 -- ls -la /tmp               # everything after "--" is the remote command
 ```
+
+`--key <name>` is zzh's own option: it uses that KeePass key instead of the
+one associated with the host, without changing the entry, and also works
+for hosts that are not in KeePass (the plain `ssh` then gets the key from
+the zzh agent, so it still never touches the disk). Like every zzh option it
+goes before the remote command: in `zzh web01 mysql --key x`, `--key x`
+belongs to `mysql`. To change the key for good, use `zzh key use`.
 
 Priority, from highest to lowest:
 
@@ -773,7 +787,7 @@ Other environment variables: `ZZH_PASSWORD` (master password, see above),
 
 | Command | |
 |---|---|
-| `zzh <target> [ssh options] [command]` | connect (name, alias, address; otherwise plain ssh) |
+| `zzh <target> [--key k] [ssh options] [command]` | connect (name, alias, address; otherwise plain ssh); `--key` picks a KeePass key for this connection |
 | `zzh ls [--tag t]...` | list hosts |
 | `zzh add …` / `zzh edit …` / `zzh rm <host>` | create, change, remove hosts |
 | `zzh alias add <host> <alias>...` / `zzh alias rm <alias>...` | host aliases |

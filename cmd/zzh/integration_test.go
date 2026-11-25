@@ -318,3 +318,92 @@ func TestIntegrationDaemonKeepsPassword(t *testing.T) {
 		t.Fatalf("after lock, ls must refuse and suggest unlock: %v\n%s", err, output)
 	}
 }
+
+// "--key" picks a KeePass key for one connection: the test server accepts
+// only the key "other", while the host is associated with "assigned".
+func TestIntegrationKeyOverride(t *testing.T) {
+	sshBinary := realSSH(t)
+
+	newKey := func(name string) sshkey.Pair {
+		pair, err := sshkey.Generate(sshkey.TypeEd25519, 0, name)
+		if err != nil {
+			t.Fatalf("cannot generate key: %v", err)
+		}
+		return pair
+	}
+	assigned, other := newKey("assigned"), newKey("other")
+
+	allowed, _, _, _, err := ssh.ParseAuthorizedKey([]byte(other.PublicLine))
+	if err != nil {
+		t.Fatalf("cannot parse public key: %v", err)
+	}
+	port := startTestServer(t, allowed)
+
+	dbPath := vaulttest.NewDatabase(t)
+	err = vaulttest.Modify(dbPath, func(v *vault.Vault) error {
+		for name, pair := range map[string]sshkey.Pair{"assigned": assigned, "other": other} {
+			if err := v.AddKey(vault.NewKey{Name: name, Type: pair.Type, PublicKey: pair.PublicLine,
+				Fingerprint: pair.Fingerprint, PrivatePEM: pair.PrivatePEM}); err != nil {
+				return err
+			}
+		}
+		return v.AddHost(vault.NewHost{Name: "with-key", Address: "127.0.0.1", Port: port, User: "tester", KeyName: "assigned"})
+	})
+	if err != nil {
+		t.Fatalf("cannot prepare database: %v", err)
+	}
+
+	knownHosts := filepath.ToSlash(filepath.Join(t.TempDir(), "known_hosts"))
+	cfg := config.Defaults()
+	cfg.Databases = map[string]config.Database{"test": {Path: dbPath}}
+	cfg.WarnEnvPassword = false
+	cfg.SSH.Binary = sshBinary
+	cfg.SSH.ExtraOptions = []string{"StrictHostKeyChecking=no", "UserKnownHostsFile=" + knownHosts, "BatchMode=yes"}
+	configPath := filepath.Join(t.TempDir(), "config.json")
+	data, err := json.Marshal(cfg)
+	if err != nil {
+		t.Fatalf("cannot encode config: %v", err)
+	}
+	if err := os.WriteFile(configPath, data, 0o600); err != nil {
+		t.Fatalf("cannot write config: %v", err)
+	}
+
+	zzh := buildZzh(t)
+	run := func(args ...string) (string, error) {
+		command := exec.Command(zzh, args...)
+		command.Env = append(os.Environ(), "ZZH_CONFIG="+configPath, "ZZH_PASSWORD="+vaulttest.Password, "SSH_AUTH_SOCK=")
+		output, err := command.CombinedOutput()
+		return string(output), err
+	}
+
+	// The associated key is refused by the server.
+	if output, err := run("with-key", "whoami"); err == nil {
+		t.Fatalf("the associated key must be refused by the test server:\n%s", output)
+	}
+
+	// --key replaces it for this connection.
+	output, err := run("with-key", "--key", "other", "whoami")
+	if err != nil || !strings.Contains(output, "authenticated by publickey") {
+		t.Fatalf("--key on a KeePass host failed: %v\n%s", err, output)
+	}
+
+	// --key also works for a host that is not in KeePass (plain ssh). The
+	// target is "localhost", not "127.0.0.1": that address belongs to the
+	// with-key entry and would be found by address.
+	output, err = run("-F", "none", "-p", strconv.Itoa(port),
+		"-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile="+knownHosts,
+		"-o", "BatchMode=yes", "-o", "IdentityFile=none",
+		"-4", "tester@localhost", "--key", "other", "whoami")
+	if err != nil || !strings.Contains(output, "authenticated by publickey") || !strings.Contains(output, "not in KeePass") {
+		t.Fatalf("--key on an unknown host failed: %v\n%s", err, output)
+	}
+
+	// The association stored in KeePass is untouched.
+	v, err := vaulttest.Open(dbPath)
+	if err != nil {
+		t.Fatalf("cannot reopen database: %v", err)
+	}
+	if host, _ := v.FindHost("with-key"); host.KeyName != "assigned" {
+		t.Fatalf("--key must not change the host entry, got key %q", host.KeyName)
+	}
+}
