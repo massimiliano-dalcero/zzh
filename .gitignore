@@ -1,0 +1,9 @@
+# Build output
+/dist/
+/zzh
+/zzh.exe
+/zzh.old
+/zzh.exe.old
+
+# Editor lock files (LibreOffice creates .~lock.<file># next to open files)
+.~lock.*#

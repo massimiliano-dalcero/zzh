@@ -1,0 +1,266 @@
+// Package syncout implements "zzh sync out": it writes the hosts and keys
+// stored in KeePass into an OpenSSH directory (~/.ssh by default), so that
+// the plain ssh, scp, rsync, git or VS Code Remote-SSH can use them without
+// going through zzh.
+//
+// This is the one place where zzh deliberately writes private keys to disk,
+// on explicit request of the user (D-026, an exception to D-002).
+package syncout
+
+import (
+	"bytes"
+	"errors"
+	"fmt"
+	"io"
+	"io/fs"
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
+
+	"zzh/internal/core/cliflags"
+	"zzh/internal/core/vault"
+)
+
+const usage = "usage: zzh sync out [--dir path] [--dry-run]"
+
+// Opener opens the selected database (session.OpenVault).
+type Opener func() (*vault.Vault, error)
+
+// plannedFile is one file the sync wants to write.
+type plannedFile struct {
+	path    string
+	content []byte
+
+	// private marks files readable only by the owner (private keys and the
+	// config file). ssh refuses private keys readable by others.
+	private bool
+}
+
+// Run reads hosts and keys and writes them to the target directory.
+//
+// defaultDir is the user's ~/.ssh: it is a parameter so that tests never
+// touch the real one. --dir overrides it, --dry-run only reports.
+func Run(args []string, open Opener, defaultDir string, out io.Writer) error {
+	parsed, err := cliflags.Parse(args, cliflags.Spec{Values: []string{"dir"}, Switches: []string{"dry-run"}})
+	if err != nil {
+		return err
+	}
+	if len(parsed.Positional) != 0 {
+		return errors.New(usage)
+	}
+
+	dir := defaultDir
+	if value := parsed.Value("dir"); value != "" {
+		dir, err = filepath.Abs(value)
+		if err != nil {
+			return fmt.Errorf("invalid --dir %q: %w", value, err)
+		}
+	}
+
+	v, err := open()
+	if err != nil {
+		return err
+	}
+
+	files, warnings, err := plan(v, dir, dir == defaultDir)
+	if err != nil {
+		return err
+	}
+	for _, warning := range warnings {
+		fmt.Fprintln(out, "warning:", warning)
+	}
+
+	return apply(files, dir, parsed.Switch("dry-run"), out)
+}
+
+// plan builds the list of files to write. Nothing is written here.
+//
+// homeRelative selects how IdentityFile paths are written in the config:
+// "~/.ssh/<key>" for the real ~/.ssh (portable and readable), an absolute
+// path for any other directory.
+func plan(v *vault.Vault, dir string, homeRelative bool) ([]plannedFile, []string, error) {
+	keys, err := v.Keys()
+	if err != nil {
+		return nil, nil, err
+	}
+	hosts, err := v.Hosts()
+	if err != nil {
+		return nil, nil, err
+	}
+
+	var files []plannedFile
+	var warnings []string
+
+	keyFiles := map[string]string{}
+	for _, key := range keys {
+		privatePEM, err := v.PrivateKey(key.Name)
+		if err != nil {
+			// A key without a readable private part cannot be used by ssh;
+			// the other keys are still worth writing.
+			warnings = append(warnings, err.Error())
+			continue
+		}
+
+		path := filepath.Join(dir, key.Name)
+		files = append(files,
+			plannedFile{path: path, content: privatePEM, private: true},
+			plannedFile{path: path + ".pub", content: []byte(key.PublicKey + "\n")},
+		)
+		keyFiles[key.ID] = identityPath(key.Name, dir, homeRelative)
+	}
+
+	hostsConfig, configWarnings := buildConfig(hosts, keyFiles)
+	warnings = append(warnings, configWarnings...)
+	files = append(files, plannedFile{path: filepath.Join(dir, zzhConfigName), content: hostsConfig, private: true})
+
+	userConfig, err := planUserConfig(filepath.Join(dir, "config"), includeLine(dir, homeRelative))
+	if err != nil {
+		return nil, nil, err
+	}
+	if userConfig != nil {
+		files = append(files, *userConfig)
+	}
+
+	return files, warnings, nil
+}
+
+// zzhConfigName is the file, owned and fully rewritten by zzh, that holds
+// the generated Host blocks. The user's own config only includes it.
+const zzhConfigName = "zzh_config"
+
+// includeLine is the directive added to the user's config. A relative path
+// is resolved by ssh against ~/.ssh, so the short form is used for the real
+// ~/.ssh and a quoted absolute path for any other directory.
+func includeLine(dir string, homeRelative bool) string {
+	if homeRelative {
+		return "Include " + zzhConfigName
+	}
+	return `Include "` + filepath.ToSlash(filepath.Join(dir, zzhConfigName)) + `"`
+}
+
+// planUserConfig integrates zzh into the user's ~/.ssh/config instead of
+// replacing it (D-027): the only change is the Include line, added once.
+//
+// The line goes at the very top. An Include placed after a "Host" line
+// belongs to that block and would only apply to that host; at the top it
+// applies to every host, and since ssh keeps the first value it reads for
+// each setting, the KeePass values win over a block with the same name
+// further down in the user's file. Everything the user wrote is kept.
+//
+// It returns nil when the file already includes zzh_config: there is
+// nothing to change.
+func planUserConfig(path, include string) (*plannedFile, error) {
+	existing, err := os.ReadFile(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		content := "# Hosts from KeePass, generated by \"zzh sync out\".\n" + include + "\n"
+		return &plannedFile{path: path, content: []byte(content), private: true}, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("cannot read %s: %w", path, err)
+	}
+
+	if includesZzhConfig(existing) {
+		return nil, nil
+	}
+
+	// Keep the line endings the file already uses (CRLF when it was
+	// written with a Windows editor), so the file stays consistent.
+	newline := "\n"
+	if bytes.Contains(existing, []byte("\r\n")) {
+		newline = "\r\n"
+	}
+
+	content := append([]byte("# Hosts from KeePass, generated by \"zzh sync out\"."+newline+include+newline+newline), existing...)
+	return &plannedFile{path: path, content: content, private: true}, nil
+}
+
+// includesZzhConfig reports whether an "Include" directive already points to
+// zzh_config, in any of the forms ssh accepts ("Include zzh_config",
+// "include ~/.ssh/zzh_config", "Include=\"...\"", ...).
+func includesZzhConfig(content []byte) bool {
+	for _, line := range strings.Split(string(content), "\n") {
+		fields := strings.Fields(strings.ReplaceAll(line, "=", " "))
+		if len(fields) < 2 || !strings.EqualFold(fields[0], "include") {
+			continue
+		}
+		for _, target := range fields[1:] {
+			if strings.HasSuffix(strings.Trim(target, `"`), zzhConfigName) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// buildConfig writes zzh_config: one Host block per valid host.
+//
+// The block alias is the zzh name, so "ssh web01" and "zzh web01" reach the
+// same machine. Options from "zzh.options" are converted from the
+// "Key=Value" form used in KeePass to the "Key Value" form of ssh_config.
+func buildConfig(hosts []vault.Host, keyFiles map[string]string) ([]byte, []string) {
+	var config strings.Builder
+	var warnings []string
+
+	config.WriteString("# Generated by \"zzh sync out\" from the KeePass database and included\n")
+	config.WriteString("# by ~/.ssh/config. Edit hosts in KeePass and run the sync again: changes\n")
+	config.WriteString("# made here are replaced (the previous file is kept as zzh_config_<n>.bkp).\n")
+
+	for _, host := range hosts {
+		if host.Problem != "" {
+			warnings = append(warnings, fmt.Sprintf("host %q skipped: %s", host.Name, host.Problem))
+			continue
+		}
+
+		// ssh accepts several names on one Host line, so the aliases reach
+		// the same block: "ssh c" works like "ssh centauri".
+		config.WriteString("\nHost " + strings.Join(append([]string{host.Name}, host.Aliases...), " ") + "\n")
+		config.WriteString("    HostName " + host.Address + "\n")
+		if host.User != "" {
+			config.WriteString("    User " + host.User + "\n")
+		}
+		if host.Port != 0 {
+			config.WriteString("    Port " + strconv.Itoa(host.Port) + "\n")
+		}
+
+		if host.KeyID != "" {
+			identity, found := keyFiles[host.KeyID]
+			if found {
+				config.WriteString("    IdentityFile " + identity + "\n")
+				// Only the configured key is offered: other keys in the agent
+				// or in ~/.ssh could otherwise exhaust the server's attempts.
+				config.WriteString("    IdentitiesOnly yes\n")
+			} else {
+				warnings = append(warnings, fmt.Sprintf("host %q uses a key that no longer exists: written without key", host.Name))
+			}
+		}
+
+		for _, option := range host.Options {
+			key, value, _ := strings.Cut(option, "=")
+			config.WriteString("    " + strings.TrimSpace(key) + " " + strings.TrimSpace(value) + "\n")
+		}
+	}
+
+	return []byte(config.String()), warnings
+}
+
+// identityPath is how a key file is referenced from the config file.
+// Absolute paths are quoted and use forward slashes, which ssh accepts on
+// every platform and which survive spaces in the path (e.g. Windows
+// profiles like "C:/Users/Mario Rossi/.ssh").
+func identityPath(keyName, dir string, homeRelative bool) string {
+	if homeRelative {
+		return "~/.ssh/" + keyName
+	}
+	return `"` + filepath.ToSlash(filepath.Join(dir, keyName)) + `"`
+}
+
+// DefaultDir returns the user's OpenSSH directory, ~/.ssh, which is also
+// where the Windows OpenSSH client looks (%USERPROFILE%\.ssh).
+func DefaultDir() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("cannot determine the home directory: %w", err)
+	}
+	return filepath.Join(home, ".ssh"), nil
+}
