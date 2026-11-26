@@ -129,6 +129,7 @@ zzh puts all of it in one encrypted KeePass database:
 | **OpenSSH client** | 8.5 or newer (`SSH_ASKPASS_REQUIRE` from 8.4, `KnownHostsCommand` from 8.5). `zzh doctor` checks it. |
 | **Windows** | The **native** Windows OpenSSH (`C:\Windows\System32\OpenSSH\ssh.exe`, or the newer `Microsoft.OpenSSH.Preview` from winget). zzh picks it automatically even when the `ssh.exe` of Git, MSYS2 or Cygwin comes first in `PATH`: see [why](#why-the-native-openssh-on-windows). |
 | **KeePass database** | KDBX 4 with **Argon2d** or AES-KDF. Argon2id is not supported yet (zzh says so clearly). Databases are written only in KDBX 4. |
+| **Confirmation dialog** (optional) | Nothing on Windows and macOS; `zenity` or `kdialog` on Linux. Without them background programs cannot be asked (see [confirm.mode](#when-another-program-runs-ssh-the-confirmation-dialog)). |
 | **To build** | Go 1.26 or newer. |
 
 KeePassXC is not required to use zzh, but it is the natural companion to
@@ -136,7 +137,9 @@ look at and edit the same database.
 
 > zzh is developed and used daily on Windows. Linux and macOS are supported
 > by design (Unix sockets, `setsid`, file modes) and the code builds and is
-> vetted for them, but they have been exercised much less.
+> vetted for them, but they have been exercised much less; the shims, the
+> controlling-terminal questions and the confirmation dialog have not been
+> tried on them yet.
 
 ### Why the native OpenSSH on Windows
 
@@ -272,6 +275,8 @@ $ zzh doctor
 [ok  ] ssh version: OpenSSH 9.6
 [ok  ]   SSH_ASKPASS_REQUIRE=force (needs 8.4): passwords are supplied by zzh instead of being typed
 [ok  ]   KnownHostsCommand (needs 8.5): host keys are read from KeePass instead of known_hosts
+[ok  ] shims: not installed, ssh in PATH is /usr/bin/ssh ("zzh install --shim" to make programs use zzh)
+[ok  ] confirm: mode background, remember for 15m0s, graphical dialog available
 ```
 
 On a terminal the marks are colored: `ok` green, `FAIL` red, with the
@@ -296,7 +301,7 @@ $env:CGO_ENABLED = "0"; go build -trimpath -ldflags "-s -w" -o zzh.exe ./cmd/zzh
 
 The version is defined in one place, `releaseVersion` in
 `cmd/zzh/version.go`. A binary built from a git checkout also shows the
-commit it comes from (`zzh v0.9.1+4a0cc78`, `.dirty` with uncommitted
+commit it comes from (`zzh v0.10.0+fe5e447`, `.dirty` with uncommitted
 changes); add `-buildvcs=false` to get exactly the release version, as the
 published binaries do.
 
@@ -1218,9 +1223,11 @@ What zzh protects, and how:
 - **Programs in the background** are confirmed by you before they use the
   KeePass data (`confirm.mode`), in a dialog that names the program and its
   path; authorizations are per program and host, limited in time, and
-  cleared by `zzh lock`. The dialog's texts reach the helper program
-  through its environment, not its command line, and the password comes
-  back through a private pipe. The confirmation protects from programs
+  cleared by `zzh lock`. On Windows the dialog is a window of zzh itself,
+  so the password never leaves zzh's memory; on macOS and Linux the
+  dialog's texts reach the system tool through its environment, not its
+  command line, and the password comes back through a pipe only zzh
+  reads. The confirmation protects from programs
   acting behind your back, not from malware running as your user, which
   could fake the program's name or click the dialog itself.
 
@@ -1304,7 +1311,15 @@ go test -short ./cmd/... ./internal/...    # skips them
 The integration tests build the zzh binary and use the real OpenSSH client
 against a small SSH server written in Go inside the test, so they never
 touch a real server or your accounts; they are skipped when no suitable
-OpenSSH client is installed.
+OpenSSH client is installed. They use a private daemon folder, ignore zzh
+shims installed on the machine and never open dialogs. The one test that
+shows the real confirmation dialog (and lets it time out) runs only on
+request:
+
+```sh
+ZZH_TEST_GUI=1 go test ./internal/core/gui/                            # 2 seconds
+ZZH_TEST_GUI=1 ZZH_TEST_GUI_TIMEOUT=20s go test ./internal/core/gui/   # to look at it
+```
 
 Dependencies: [gokeepasslib](https://github.com/tobischo/gokeepasslib)
 (KDBX), [golang.org/x/crypto](https://pkg.go.dev/golang.org/x/crypto)
