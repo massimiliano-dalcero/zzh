@@ -878,8 +878,8 @@ zzh config unset lock.idle_timeout                                        # back
 | `keys.default_type` | `ed25519` | type for `zzh key gen` |
 | `keys.rsa_bits` | `4096` | RSA size for `zzh key gen --type rsa` |
 | `output.color` | `auto` | colors on a terminal (`auto`, also off when `NO_COLOR` is set), `always` or `never`; pipes and files never get colors |
-| `shim.enabled` | `true` | `false`: the ssh, scp and sftp shims run the real programs for you, as if zzh were not there |
 | `output.stripes` | `true` | alternate background for table rows (turn off on light themes if it reads badly) |
+| `shim.enabled` | `true` | `false`: the ssh, scp and sftp shims run the real programs for you, as if zzh were not there |
 
 Durations are written as `30s`, `15m`, `8h`, `1h30m`.
 
