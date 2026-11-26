@@ -73,7 +73,8 @@ Usage:
                                   create a key pair stored in KeePass
   zzh [--db name] key import <name> <file|-> [--comment text] [--folder path]
                                   store an existing private key (- = paste it)
-  zzh [--db name] key ls          list the keys and the hosts using them
+  zzh [--db name] key ls [--grep]
+                                  list the keys and the hosts using them
   zzh [--db name] key rm <name> [--force] [--yes]
                                   remove a key (--force: also from its hosts)
   zzh [--db name] key pub <name>  print the public key
@@ -87,11 +88,11 @@ Usage:
 
   zzh [--db name] unlock          keep the master password in the zzh daemon
   zzh [--db name] lock            forget it (without --db: every database)
-  zzh status                      unlocked databases and when they lock
+  zzh status [--grep]             unlocked databases and when they lock
   zzh daemon stop                 stop the daemon, locking everything
 
   zzh init <name> <path.kdbx>     create a new database and bookmark it
-  zzh db ls                       list the bookmarked databases
+  zzh db ls [--grep]              list the bookmarked databases
   zzh db add <name> <path.kdbx>   bookmark an existing database
   zzh db rm <name>                forget a bookmark (the file is kept)
   zzh db default <name>           choose the database used without --db

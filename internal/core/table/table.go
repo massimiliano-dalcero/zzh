@@ -136,6 +136,19 @@ func (t Table) renderBoxed(w io.Writer, s style.Styler) error {
 	return err
 }
 
+// ParseGrepOnly reads the arguments of a listing whose only option is
+// --grep ("zzh key ls", "zzh db ls", "zzh status"); anything else is an
+// error that quotes usage.
+func ParseGrepOnly(args []string, usage string) (bool, error) {
+	switch {
+	case len(args) == 0:
+		return false, nil
+	case len(args) == 1 && args[0] == "--grep":
+		return true, nil
+	}
+	return false, fmt.Errorf("unexpected argument %q (%s)", args[0], usage)
+}
+
 // RenderBoxedForTest exposes the boxed layout with a chosen styler, so that
 // the commands can test their colored output without a terminal.
 func (t Table) RenderBoxedForTest(w io.Writer, s style.Styler) error {

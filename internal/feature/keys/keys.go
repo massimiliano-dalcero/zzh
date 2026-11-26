@@ -8,18 +8,19 @@ import (
 	"io"
 	"strconv"
 	"strings"
-	"text/tabwriter"
 
 	"zzh/internal/core/cliflags"
 	"zzh/internal/core/config"
 	"zzh/internal/core/sshkey"
+	"zzh/internal/core/style"
+	"zzh/internal/core/table"
 	"zzh/internal/core/vault"
 )
 
 const usage = `usage:
   zzh key gen <name> [--type ed25519|ecdsa|rsa] [--bits n] [--comment text] [--folder path]
   zzh key import <name> <file|-> [--comment text] [--folder path]
-  zzh key ls
+  zzh key ls [--grep]
   zzh key rm <name> [--force] [--yes]
   zzh key pub <name>
   zzh key use <host> <key>
@@ -133,10 +134,12 @@ func generate(args []string, store Store, keysConfig config.KeysConfig, out io.W
 	return nil
 }
 
-// list shows the keys and, for each one, the hosts configured to use it.
+// list shows the keys and, for each one, the hosts configured to use it:
+// a table on a terminal, tab-separated lines with --grep or in a pipe.
 func list(args []string, store Store, out io.Writer) error {
-	if len(args) != 0 {
-		return errors.New(usage)
+	grep, err := table.ParseGrepOnly(args, "usage: zzh key ls [--grep]")
+	if err != nil {
+		return err
 	}
 
 	v, err := store.Open()
@@ -159,12 +162,26 @@ func list(args []string, store Store, out io.Writer) error {
 		}
 	}
 
-	table := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(table, "NAME\tTYPE\tFINGERPRINT\tHOSTS")
+	return keyTable(keyList, usedBy, style.For(out)).Render(out, grep)
+}
+
+// keyTable builds the key listing: names in bold, fingerprints dimmed (long
+// and rarely read), unused keys flagged in yellow as candidates for removal.
+func keyTable(keyList []vault.Key, usedBy map[string][]string, s style.Styler) table.Table {
+	t := table.Table{Headers: []string{"NAME", "TYPE", "FINGERPRINT", "HOSTS"}}
 	for _, key := range keyList {
-		fmt.Fprintf(table, "%s\t%s\t%s\t%s\n", key.Name, key.Type, key.Fingerprint, strings.Join(usedBy[key.ID], ","))
+		hosts := table.Plain(strings.Join(usedBy[key.ID], ","))
+		if len(usedBy[key.ID]) == 0 {
+			hosts = table.Cell{Text: "unused", Paint: s.Warning}
+		}
+		t.Add(
+			table.Cell{Text: key.Name, Paint: s.Name},
+			table.Plain(key.Type),
+			table.Cell{Text: key.Fingerprint, Paint: s.Dim},
+			hosts,
+		)
 	}
-	return table.Flush()
+	return t
 }
 
 // printPublic prints only the public key line, so that the output can be

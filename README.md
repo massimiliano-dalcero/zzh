@@ -461,6 +461,10 @@ zzh ls | grep stored              # hosts with a stored password
 zzh ls --grep | cut -f1,5         # name and address
 ```
 
+Every listing works the same way: `zzh key ls` (unused keys flagged as
+`unused`), `zzh db ls` (default marked, missing files in red) and
+`zzh status` all draw a table on a terminal and accept `--grep`.
+
 Examples:
 
 ```sh
@@ -545,8 +549,11 @@ zzh daemon stop     # stop the daemon
 
 ```console
 $ zzh status
-DATABASE  PATH                    UNLOCKED  LOCKS     KEPT
-personal  /home/max/vault/ssh.kdbx  10:42:13  in 14m3s  open
+┌──────────┬──────────────────────────┬──────────┬──────────┬──────┐
+│ DATABASE │ PATH                     │ UNLOCKED │ LOCKS    │ KEPT │
+├──────────┼──────────────────────────┼──────────┼──────────┼──────┤
+│ personal │ /home/max/vault/ssh.kdbx │ 10:42:13 │ in 14m3s │ open │
+└──────────┴──────────────────────────┴──────────┴──────────┴──────┘
 ```
 
 - It is a `zzh daemon run` process started in the background, detached from
@@ -889,7 +896,7 @@ Other environment variables: `ZZH_PASSWORD` (master password, see above),
 | `zzh ls [--tag t]... [--grep]` | list hosts (`--grep`: one tab-separated line per host) |
 | `zzh add …` / `zzh edit …` / `zzh rm <host>` | create, change, remove hosts |
 | `zzh alias add <host> <alias>...` / `zzh alias rm <alias>...` | host aliases |
-| `zzh key gen\|import\|ls\|pub\|use\|rm …` | keys |
+| `zzh key gen\|import\|ls\|pub\|use\|rm …` | keys (`key ls --grep`) |
 | `zzh sync out [--dir path] [--dry-run]` | export to `~/.ssh` |
 | `zzh unlock` / `zzh lock` / `zzh status` / `zzh daemon stop` | master password and daemon |
 | `zzh init <name> <path>` | create a database |

@@ -6,11 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"text/tabwriter"
 	"time"
 
 	"zzh/internal/core/config"
 	"zzh/internal/core/daemon"
+	"zzh/internal/core/style"
+	"zzh/internal/core/table"
 )
 
 // Operations groups what the commands need from the session package, as
@@ -59,8 +60,9 @@ func Lock(args []string, databaseName string, ops Operations, out io.Writer) err
 
 // Status handles "zzh status": which databases are unlocked and until when.
 func Status(args []string, cfg config.Config, ops Operations, now time.Time, out io.Writer) error {
-	if len(args) != 0 {
-		return errors.New("usage: zzh status")
+	grep, err := table.ParseGrepOnly(args, "usage: zzh status [--grep]")
+	if err != nil {
+		return err
 	}
 
 	unlocked, err := ops.Status()
@@ -80,8 +82,9 @@ func Status(args []string, cfg config.Config, ops Operations, now time.Time, out
 		}
 	}
 
-	table := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(table, "DATABASE\tPATH\tUNLOCKED\tLOCKS\tKEPT")
+	// Names in bold, paths dimmed, an unreadable file in yellow.
+	s := style.For(out)
+	listing := table.Table{Headers: []string{"DATABASE", "PATH", "UNLOCKED", "LOCKS", "KEPT"}}
 	var problems []string
 	for _, entry := range unlocked {
 		locks := "never"
@@ -100,15 +103,24 @@ func Status(args []string, cfg config.Config, ops Operations, now time.Time, out
 			problems = append(problems, entry.Database+": "+entry.Stale)
 		}
 
-		fmt.Fprintf(table, "%s\t%s\t%s\t%s\t%s\n", names[entry.Database], entry.Database,
-			entry.UnlockedAt.Local().Format("15:04:05"), locks, kept)
+		keptCell := table.Plain(kept)
+		if entry.Stale != "" {
+			keptCell.Paint = s.Warning
+		}
+		listing.Add(
+			table.Cell{Text: names[entry.Database], Paint: s.Name},
+			table.Cell{Text: entry.Database, Paint: s.Dim},
+			table.Plain(entry.UnlockedAt.Local().Format("15:04:05")),
+			table.Plain(locks),
+			keptCell,
+		)
 	}
-	if err := table.Flush(); err != nil {
+	if err := listing.Render(out, grep); err != nil {
 		return err
 	}
 
 	for _, problem := range problems {
-		fmt.Fprintln(out, "warning:", problem)
+		fmt.Fprintln(out, s.Warning("warning:"), problem)
 	}
 	return nil
 }

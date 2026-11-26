@@ -7,12 +7,13 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"text/tabwriter"
 
 	"zzh/internal/core/config"
+	"zzh/internal/core/style"
+	"zzh/internal/core/table"
 )
 
-const usage = "usage: zzh db ls | add <name> <path> | rm <name> | default <name>"
+const usage = "usage: zzh db ls [--grep] | add <name> <path> | rm <name> | default <name>"
 
 // Run executes a db subcommand. Commands that change the bookmarks save the
 // config file immediately.
@@ -31,8 +32,12 @@ func Run(args []string, loaded config.Loaded, loadErr error, out io.Writer) erro
 	action, params := args[0], args[1:]
 
 	switch {
-	case action == "ls" && len(params) == 0:
-		return list(cfg, out)
+	case action == "ls":
+		grep, err := table.ParseGrepOnly(params, usage)
+		if err != nil {
+			return err
+		}
+		return list(cfg, grep, out)
 
 	case action == "add" && len(params) == 2:
 		if err := checkDatabaseFile(params[1]); err != nil {
@@ -81,7 +86,7 @@ func Run(args []string, loaded config.Loaded, loadErr error, out io.Writer) erro
 
 // list prints the bookmarks, marking the one used without "--db" and
 // flagging files that no longer exist (moved or deleted databases).
-func list(cfg config.Config, out io.Writer) error {
+func list(cfg config.Config, grep bool, out io.Writer) error {
 	if len(cfg.Databases) == 0 {
 		fmt.Fprintln(out, `No database bookmarked: use "zzh init <name> <path>" or "zzh db add <name> <path>".`)
 		return nil
@@ -94,8 +99,9 @@ func list(cfg config.Config, out io.Writer) error {
 		effectiveDefault = resolved.Name
 	}
 
-	table := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(table, "DEFAULT\tNAME\tPATH\tSTATUS")
+	// The default database is marked in green, a missing file in red.
+	s := style.For(out)
+	listing := table.Table{Headers: []string{"DEFAULT", "NAME", "PATH", "STATUS"}}
 
 	for _, name := range cfg.DatabaseNames() {
 		resolved, err := cfg.Resolve(name)
@@ -108,15 +114,20 @@ func list(cfg config.Config, out io.Writer) error {
 			marker = "*"
 		}
 
-		status := "ok"
+		status := table.Cell{Text: "ok", Paint: s.Success}
 		if err := checkDatabaseFile(resolved.Path); err != nil {
-			status = "MISSING"
+			status = table.Cell{Text: "MISSING", Paint: s.Error}
 		}
 
-		fmt.Fprintf(table, "%s\t%s\t%s\t%s\n", marker, name, resolved.Path, status)
+		listing.Add(
+			table.Cell{Text: marker, Paint: s.Success},
+			table.Cell{Text: name, Paint: s.Name},
+			table.Cell{Text: resolved.Path, Paint: s.Dim},
+			status,
+		)
 	}
 
-	return table.Flush()
+	return listing.Render(out, grep)
 }
 
 // checkDatabaseFile verifies that path is an existing regular file. The
