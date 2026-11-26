@@ -310,7 +310,7 @@ published binaries do.
 ## Quick start
 
 ```sh
-# 1. Create a database (or bookmark an existing one: zzh db add personal ~/vault/ssh.kdbx)
+# 1. Create a database (on an existing file, zzh init offers to use it as zzh db add does)
 zzh init personal ~/vault/ssh.kdbx
 
 # 2. Create a key pair inside KeePass and print its public key
@@ -733,10 +733,19 @@ once) and checks the groups zzh works in:
 | `SSH` with `Hosts` and `Keys` | bookmarks it; the file is not rewritten |
 | an `SSH` group without `Hosts` and `Keys` | **stops** without changing the file or saving the bookmark: that group was not made by zzh, and zzh does not add groups inside it. Add `Hosts` and `Keys` in KeePassXC, or choose another group name first with `zzh config set root_group <name>` |
 
-`zzh init` creates the database with the zzh groups, never overwrites an
-existing file, and tunes the key derivation like KeePassXC: Argon2d with
-64 MiB of memory and as many iterations as fit in about one second on your
-machine.
+`zzh init` creates the database with the zzh groups and tunes the key
+derivation like KeePassXC: Argon2d with 64 MiB of memory and as many
+iterations as fit in about one second on your machine.
+
+It never overwrites an existing file. When the path already holds one,
+`zzh init` asks whether to use it instead, and on a yes behaves exactly
+like `zzh db add` (master password of that file, zzh groups created if
+there is no `SSH` group, stop if there is a foreign one):
+
+```console
+$ zzh init personal ~/vault/passwords.kdbx
+/home/max/vault/passwords.kdbx already exists. Use it as "personal", adding the zzh groups (SSH/Hosts, SSH/Keys) if they are missing? [y/N]
+```
 
 ---
 

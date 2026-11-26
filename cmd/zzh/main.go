@@ -92,6 +92,8 @@ Usage:
   zzh daemon stop                 stop the daemon, locking everything
 
   zzh init <name> <path.kdbx>     create a new database and bookmark it
+                                  (an existing file: after a confirmation,
+                                  used as "zzh db add" does)
   zzh db ls [--grep]              list the bookmarked databases
   zzh db add <name> <path.kdbx>   bookmark an existing database (creates
                                   SSH/Hosts and SSH/Keys when there is
@@ -713,15 +715,24 @@ func reservedNames() []string {
 
 func runInit(_ globalOptions, args []string) error {
 	loaded, err := config.LoadDefault()
-	return initdb.Run(args, loaded, err, prompt.NewPassword, os.Stdout)
+	// An existing file is handled like "zzh db add", after a confirmation.
+	existing := initdb.Existing{
+		Confirm: prompt.Confirm,
+		Add: func(name, path string) error {
+			return dbcmd.Run([]string{"add", name, path}, loaded, err, modifyDatabase, os.Stdout)
+		},
+	}
+	return initdb.Run(args, loaded, err, prompt.NewPassword, existing, os.Stdout)
+}
+
+// modifyDatabase is session.Modify in the form the db commands expect.
+func modifyDatabase(cfg config.Config, name string, change func(v *vault.Vault) error) error {
+	return session.Modify(cfg, name, change)
 }
 
 func runDatabases(_ globalOptions, args []string) error {
 	loaded, err := config.LoadDefault()
-	modify := func(cfg config.Config, name string, change func(v *vault.Vault) error) error {
-		return session.Modify(cfg, name, change)
-	}
-	return dbcmd.Run(args, loaded, err, modify, os.Stdout)
+	return dbcmd.Run(args, loaded, err, modifyDatabase, os.Stdout)
 }
 
 func runDoctor(_ globalOptions, _ []string) error {

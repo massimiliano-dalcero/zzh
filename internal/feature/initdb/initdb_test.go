@@ -23,6 +23,20 @@ func failIfAsked(t *testing.T) PasswordReader {
 	}
 }
 
+// noExisting fails the test if init tries to use an existing file.
+func noExisting(t *testing.T) Existing {
+	return Existing{
+		Confirm: func(string) (bool, error) {
+			t.Fatalf("no confirmation expected")
+			return false, nil
+		},
+		Add: func(string, string) error {
+			t.Fatalf("no existing file expected")
+			return nil
+		},
+	}
+}
+
 func emptyConfig(t *testing.T) config.Loaded {
 	return config.Loaded{
 		Config: config.Defaults(),
@@ -37,7 +51,7 @@ func TestInitCreatesDatabaseAndBookmark(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "personal.kdbx")
 
 	var out bytes.Buffer
-	if err := Run([]string{"personal", dbPath}, loaded, nil, fixedPassword, &out); err != nil {
+	if err := Run([]string{"personal", dbPath}, loaded, nil, fixedPassword, noExisting(t), &out); err != nil {
 		t.Fatalf("init failed: %v", err)
 	}
 
@@ -62,11 +76,6 @@ func TestInitCreatesDatabaseAndBookmark(t *testing.T) {
 }
 
 func TestInitRejectsBeforeAskingPassword(t *testing.T) {
-	existing := filepath.Join(t.TempDir(), "existing.kdbx")
-	if err := os.WriteFile(existing, []byte("x"), 0o600); err != nil {
-		t.Fatalf("cannot write test file: %v", err)
-	}
-
 	bookmarked := emptyConfig(t)
 	bookmarked.Config.Databases = map[string]config.Database{"work": {Path: "w.kdbx"}}
 
@@ -77,7 +86,7 @@ func TestInitRejectsBeforeAskingPassword(t *testing.T) {
 	}{
 		"missing arguments": {[]string{"personal"}, emptyConfig(t), nil},
 		"invalid name":      {[]string{"my db", "x.kdbx"}, emptyConfig(t), nil},
-		"existing file":     {[]string{"personal", existing}, emptyConfig(t), nil},
+		"folder":            {[]string{"personal", t.TempDir()}, emptyConfig(t), nil},
 		"name taken":        {[]string{"work", filepath.Join(t.TempDir(), "n.kdbx")}, bookmarked, nil},
 		"broken config":     {[]string{"personal", "x.kdbx"}, emptyConfig(t), errors.New("invalid config")},
 	}
@@ -85,9 +94,42 @@ func TestInitRejectsBeforeAskingPassword(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			var out bytes.Buffer
-			if err := Run(tc.args, tc.loaded, tc.loadErr, failIfAsked(t), &out); err == nil {
+			if err := Run(tc.args, tc.loaded, tc.loadErr, failIfAsked(t), noExisting(t), &out); err == nil {
 				t.Fatalf("expected an error")
 			}
 		})
+	}
+}
+
+// An existing file is never overwritten: after a yes it is handed to the
+// "db add" logic, after a no nothing happens. No new password is asked.
+func TestInitOnExistingFile(t *testing.T) {
+	existing := filepath.Join(t.TempDir(), "existing.kdbx")
+	if err := os.WriteFile(existing, []byte("original"), 0o600); err != nil {
+		t.Fatalf("cannot write test file: %v", err)
+	}
+
+	for _, answer := range []bool{true, false} {
+		var question, added string
+		handler := Existing{
+			Confirm: func(q string) (bool, error) { question = q; return answer, nil },
+			Add:     func(name, path string) error { added = name + "=" + path; return nil },
+		}
+		var out bytes.Buffer
+		if err := Run([]string{"personal", existing}, emptyConfig(t), nil, failIfAsked(t), handler, &out); err != nil {
+			t.Fatalf("answer %v: unexpected error %v", answer, err)
+		}
+		if !strings.Contains(question, "already exists") {
+			t.Fatalf("the user must be asked, got %q", question)
+		}
+		if answer && added != "personal="+existing {
+			t.Fatalf("yes must use the existing file, got %q", added)
+		}
+		if !answer && (added != "" || !strings.Contains(out.String(), "Nothing done")) {
+			t.Fatalf("no must change nothing: added %q, output %q", added, out.String())
+		}
+		if data, _ := os.ReadFile(existing); string(data) != "original" {
+			t.Fatalf("the existing file must never be overwritten")
+		}
 	}
 }

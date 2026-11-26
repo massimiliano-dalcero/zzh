@@ -17,12 +17,22 @@ import (
 // confirmation). It is a parameter so that tests can run without a terminal.
 type PasswordReader func(message string) (string, error)
 
+// Existing handles a path that already holds a file (D-066): instead of
+// refusing, init offers to use it as "zzh db add" does. Both functions are
+// provided by the caller: Confirm asks a yes/no question (prompt.Confirm),
+// Add bookmarks the existing database and creates the zzh groups if they
+// are missing ("zzh db add"; feature modules do not call each other).
+type Existing struct {
+	Confirm func(question string) (bool, error)
+	Add     func(name, path string) error
+}
+
 // Run creates the database and the bookmark.
 //
 // Everything that can be checked cheaply (arguments, config file, name and
 // path availability) is checked before asking for the password, so that the
 // user does not type a new master password twice only to hit a trivial error.
-func Run(args []string, loaded config.Loaded, loadErr error, askPassword PasswordReader, out io.Writer) error {
+func Run(args []string, loaded config.Loaded, loadErr error, askPassword PasswordReader, existing Existing, out io.Writer) error {
 	if len(args) != 2 {
 		return errors.New("usage: zzh init <name> <path.kdbx>")
 	}
@@ -46,8 +56,21 @@ func Run(args []string, loaded config.Loaded, loadErr error, askPassword Passwor
 	if err != nil {
 		return fmt.Errorf("invalid path %q: %w", rawPath, err)
 	}
-	if _, err := os.Stat(path); err == nil {
-		return fmt.Errorf("%s already exists: to use it, run \"zzh db add %s %s\"", path, name, path)
+	if info, err := os.Stat(path); err == nil {
+		if info.IsDir() {
+			return fmt.Errorf("%s is a folder, not a database file", path)
+		}
+		// The file is never overwritten. With the user's consent it is used
+		// as it is: bookmarked, and given the zzh groups if it has none.
+		allowed, err := existing.Confirm(fmt.Sprintf("%s already exists. Use it as %q, adding the zzh groups (SSH/Hosts, SSH/Keys) if they are missing?", path, name))
+		if err != nil {
+			return err
+		}
+		if !allowed {
+			fmt.Fprintln(out, "Nothing done: the existing file was left as it is.")
+			return nil
+		}
+		return existing.Add(name, path)
 	}
 
 	password, err := askPassword(fmt.Sprintf("New master password for %s: ", path))
