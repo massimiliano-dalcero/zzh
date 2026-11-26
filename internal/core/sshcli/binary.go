@@ -63,6 +63,9 @@ func ResolveBinary(binary string) (string, error) {
 		if self != nil && isSame(candidate, self) {
 			continue
 		}
+		if isZzhLink(candidate) {
+			continue
+		}
 		if windows && isPosixEmulationFolder(dir) {
 			continue
 		}
@@ -91,6 +94,25 @@ func ownFile() os.FileInfo {
 		return nil
 	}
 	return info
+}
+
+// isZzhLink reports whether path is a link to a file named zzh: the shim of
+// any zzh installation, not only of the running one. With two zzh on the
+// same machine (system-wide and per user, or a downloaded copy run while
+// another is installed) each would otherwise take the other's shim for the
+// real ssh, and the two would start each other in a loop, every round
+// possibly showing a dialog (seen on 2026-11-26).
+func isZzhLink(path string) bool {
+	info, err := os.Lstat(path)
+	if err != nil || info.Mode()&os.ModeSymlink == 0 {
+		return false
+	}
+	target, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return false
+	}
+	name := strings.ToLower(filepath.Base(target))
+	return name == "zzh" || name == "zzh.exe"
 }
 
 // isSame reports whether path is the same file as self, following links.

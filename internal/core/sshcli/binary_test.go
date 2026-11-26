@@ -121,6 +121,27 @@ func TestResolveBinarySkipsItselfThroughLink(t *testing.T) {
 	}
 }
 
+// The shim of another zzh installation is skipped too, or two zzh would
+// start each other in a loop.
+func TestResolveBinarySkipsOtherZzhShims(t *testing.T) {
+	otherZzh := filepath.Join(t.TempDir(), "zzh.exe")
+	if err := os.WriteFile(otherZzh, []byte("another zzh"), 0o755); err != nil {
+		t.Fatalf("cannot create zzh: %v", err)
+	}
+	otherShimFolder := t.TempDir()
+	if err := os.Symlink(otherZzh, filepath.Join(otherShimFolder, programName())); err != nil {
+		t.Skipf("symbolic links not available here: %v", err)
+	}
+	realFolder := makeProgramFolder(t)
+	pretendToBe(t, filepath.Join(t.TempDir(), "this-zzh"))
+	t.Setenv("PATH", strings.Join([]string{otherShimFolder, realFolder}, string(os.PathListSeparator)))
+
+	got, err := ResolveBinary("ssh")
+	if err != nil || got != filepath.Join(realFolder, programName()) {
+		t.Fatalf("expected the real ssh after another zzh's shim, got %s (%v)", got, err)
+	}
+}
+
 // On Unix a file without execute permission is not a program, as for
 // exec.LookPath.
 func TestResolveBinarySkipsNonExecutable(t *testing.T) {

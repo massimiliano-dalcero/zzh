@@ -846,8 +846,9 @@ zzh installs three shims: `ssh`, `scp` and `sftp`.
   zzh. A `-S` you pass yourself is respected.
 - **Links, not copies**: the shims are symbolic links, so after an upgrade
   they run the new zzh at once.
-- **Loops are impossible**: zzh never picks itself as "the real ssh", and a
-  counter stops it if a copy of zzh is found in PATH by mistake.
+- **Loops are impossible**: zzh never picks itself, nor the shim of
+  another zzh installation (a link to a file named `zzh`), as "the real
+  ssh", and a counter stops it if a plain copy of zzh is found in PATH.
 
 ### Installing the shims
 
@@ -981,7 +982,7 @@ When the dialog appears is set by `confirm.mode`:
 |---|---|
 | `background` (default) | only programs without a visible terminal; what you type yourself in a terminal is never asked |
 | `always` | every connection that uses KeePass data; in a terminal the question is asked there (`[y/N]`) |
-| `never` | nobody; background programs use KeePass data whenever the database is unlocked |
+| `never` | nobody, and no zzh dialog at all (not even for the password): background programs use KeePass data whenever the database is unlocked |
 
 Connections that do not use KeePass data (hosts not in KeePass, without
 `--key`) never ask anything.

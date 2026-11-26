@@ -96,3 +96,9 @@ func windowClassName(window uintptr) string {
 	}
 	return syscall.UTF16ToString(buffer[:length])
 }
+
+// platformStdinVisible applies the visibility rule of the controlling
+// console to a console received as stdin: they are the same console.
+func platformStdinVisible() bool {
+	return consoleIsVisible()
+}

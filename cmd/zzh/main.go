@@ -407,7 +407,12 @@ func connectHost(options globalOptions, args []string, asShim bool) error {
 	}
 	consent := connect.NewConsent(loaded.Config.Confirm, prompt.TerminalAvailable(), invocation.Target, approvals, os.Getpid())
 	consent.Confirm = prompt.Confirm
-	session.PasswordFallback = consent.UnlockDialog
+	// confirm.mode "never" means no zzh dialog at all, not even for the
+	// password: a locked database without terminal is then an error, as
+	// before the dialog existed.
+	if loaded.Config.Confirm.Mode != "never" {
+		session.PasswordFallback = consent.UnlockDialog
+	}
 
 	v, err := session.OpenVault(loaded.Config, options.database)
 	if err != nil {

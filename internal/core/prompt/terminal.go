@@ -20,6 +20,22 @@ type terminal struct {
 	close func()
 }
 
+// TerminalAvailable reports whether a question could be asked now: stdin
+// is a visible terminal or a visible controlling terminal exists. It
+// decides between a terminal question and a graphical dialog.
+func TerminalAvailable() bool {
+	tty, err := openTerminal()
+	if err != nil {
+		return false
+	}
+	tty.close()
+	return true
+}
+
+// stdinVisible is consoleIsVisible on Windows and always true elsewhere (a
+// Unix terminal is a device someone opened); a variable for the tests.
+var stdinVisible = platformStdinVisible
+
 // openControllingTerminal opens the terminal the process is attached to,
 // bypassing any redirection of the standard streams. It is a variable so
 // that tests can replace it: under "go test" run from a console the real
@@ -43,20 +59,13 @@ var openControllingTerminal = openPlatformTerminal
 // ErrNoTerminal means that there is nobody to ask: no terminal at all (cron,
 // services, programs started from a desktop menu) or, on Windows, a console
 // nobody can see (see terminal_windows.go).
-// TerminalAvailable reports whether a question could be asked now: stdin
-// is a terminal or a visible controlling terminal exists. It decides
-// between a terminal question and a graphical dialog.
-func TerminalAvailable() bool {
-	tty, err := openTerminal()
-	if err != nil {
-		return false
-	}
-	tty.close()
-	return true
-}
-
+//
+// The visibility rule applies to stdin too: on Windows a program started
+// with a hidden window (Start-Process -WindowStyle Hidden, a scheduled
+// task) has a real console as stdin, but nobody can type into it, and a
+// question there would wait forever.
 func openTerminal() (*terminal, error) {
-	if term.IsTerminal(int(os.Stdin.Fd())) {
+	if term.IsTerminal(int(os.Stdin.Fd())) && stdinVisible() {
 		return &terminal{input: os.Stdin, output: os.Stderr, close: func() {}}, nil
 	}
 

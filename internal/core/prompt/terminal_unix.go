@@ -34,3 +34,9 @@ func openPlatformTerminal() (*terminal, error) {
 		close:  func() { tty.Close() },
 	}, nil
 }
+
+// platformStdinVisible is always true: on Unix a terminal on stdin is a
+// device somebody is using.
+func platformStdinVisible() bool {
+	return true
+}
