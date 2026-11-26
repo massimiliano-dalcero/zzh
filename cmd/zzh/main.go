@@ -318,6 +318,7 @@ func runAsSSH(args []string) error {
 	if err := shim.EnterNested(); err != nil {
 		return err
 	}
+	session.SkipWithEmptyPassword = true
 	return connectHost(globalOptions{}, args, true)
 }
 
@@ -371,11 +372,12 @@ func connectHost(options globalOptions, args []string, asShim bool) error {
 
 	v, err := session.OpenVault(loaded.Config, options.database)
 	if err != nil {
-		// Locked and nobody to ask (a background program): the plain ssh
-		// may still succeed with the system keys. Other errors (a wrong
-		// password typed now, a damaged file) are reported, because the
-		// user is there and expects zzh to work.
-		if asShim && errors.Is(err, session.ErrLocked) {
+		// As a shim, a database that is not unlocked for any reason (Enter
+		// pressed at the question to decline, a wrong password, nobody to
+		// ask, a damaged file) leaves the plain ssh to do its job, which may
+		// still succeed with the system keys (D-059). As "zzh" the error is
+		// reported: the user asked for zzh explicitly.
+		if asShim {
 			style.PrintNotice(os.Stderr, err.Error()+"; running plain ssh")
 			return connect.Run(loaded.Config.SSH.Binary, args, nil)
 		}

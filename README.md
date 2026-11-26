@@ -749,9 +749,11 @@ What zzh does when it is started as `ssh`:
   user, port, options, key and password from KeePass, as with `zzh <name>`;
 - anything else runs the real ssh **unchanged and silently**: unknown
   hosts, `ssh -V`, users who never set up zzh (with `--system` the shim
-  serves every user of the machine, root included), and a locked database
-  when nobody can type the password (a background program: a notice, then
-  the plain ssh);
+  serves every user of the machine, root included), and a database that
+  is not unlocked: at the password question press Enter to skip (the
+  question says `[Enter: plain ssh]`); a wrong password, a damaged file or
+  a background program with nobody to ask also end with one notice and the
+  plain ssh;
 - zzh subcommands are not recognized: `ssh ls` is the host `ls`. To reach
   zzh itself through the shim, start with `--zzh` (ssh has no long
   options, so it can never clash): `ssh --zzh ls` is `zzh ls`,

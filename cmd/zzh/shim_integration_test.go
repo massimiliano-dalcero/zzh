@@ -135,6 +135,14 @@ func TestIntegrationShimSSH(t *testing.T) {
 		t.Errorf("ssh --zzh version must print the zzh version, got:\n%s", output)
 	}
 
+	// A database that cannot be unlocked (here a wrong ZZH_PASSWORD) leaves
+	// the plain ssh to do its job, with one notice.
+	wrongPassword := append(withDatabase, "ZZH_PASSWORD=wrong")
+	output = runLink(t, shimFolder, "ssh", wrongPassword, "-G", "stored")
+	if !strings.Contains(output, "running plain ssh") || !strings.Contains(output, "hostname stored") {
+		t.Errorf("wrong password: expected a notice and the plain ssh, got:\n%s", output)
+	}
+
 	// A user who never set up zzh: plain ssh, not a word from zzh.
 	withoutDatabase := append(env, "ZZH_CONFIG="+writeConfig(t, config.Defaults()))
 	output = runLink(t, shimFolder, "ssh", withoutDatabase, "-G", "stored")

@@ -156,8 +156,18 @@ func obtain(cfg config.Config, databaseName string) (credentials, error) {
 	if err != nil {
 		return credentials{}, err
 	}
+	if password == "" && SkipWithEmptyPassword {
+		// The user pressed Enter to decline: nothing to try, and trying
+		// would cost the full key derivation before failing.
+		return credentials{}, fmt.Errorf("%w: no password typed", ErrLocked)
+	}
 	return credentials{database: database, password: password, source: fromTerminal}, nil
 }
+
+// SkipWithEmptyPassword lets the user decline the unlock by pressing Enter
+// at the password question, which then says so. zzh started as ssh through
+// a shim sets it: declining means "just run the plain ssh" (D-059).
+var SkipWithEmptyPassword = false
 
 // afterUse runs once the password has been tried: a password typed on the
 // terminal and accepted is handed to the daemon (starting it if needed), so
@@ -291,5 +301,9 @@ func policy(cfg config.Config) daemon.Policy {
 var passwordPrompt = prompt.Password
 
 func askPassword(database config.ResolvedDatabase) (string, error) {
-	return passwordPrompt(fmt.Sprintf("KeePass password for %q (%s): ", database.Name, database.Path))
+	hint := ""
+	if SkipWithEmptyPassword {
+		hint = " [Enter: plain ssh]"
+	}
+	return passwordPrompt(fmt.Sprintf("KeePass password for %q (%s)%s: ", database.Name, database.Path, hint))
 }

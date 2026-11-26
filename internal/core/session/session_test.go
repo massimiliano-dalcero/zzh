@@ -293,3 +293,31 @@ func TestKeepOpenReadsCopyAndWritesFile(t *testing.T) {
 		t.Fatalf("the daemon copy must follow the write: %v", err)
 	}
 }
+
+// Through the shim, Enter at the password question declines the unlock:
+// the result is a "locked" error at once, without trying the empty
+// password (which would cost the key derivation).
+func TestEmptyPasswordDeclinesWhenAllowed(t *testing.T) {
+	original := passwordPrompt
+	var question string
+	passwordPrompt = func(message string) (string, error) {
+		question = message
+		return "", nil
+	}
+	SkipWithEmptyPassword = true
+	t.Cleanup(func() {
+		passwordPrompt = original
+		SkipWithEmptyPassword = false
+	})
+
+	cfg := config.Defaults()
+	cfg.Databases = map[string]config.Database{"personal": {Path: "unused.kdbx"}}
+
+	_, err := OpenVault(cfg, "")
+	if !errors.Is(err, ErrLocked) || !strings.Contains(err.Error(), "no password typed") {
+		t.Fatalf("expected a declined unlock, got %v", err)
+	}
+	if !strings.Contains(question, "[Enter: plain ssh]") {
+		t.Fatalf("the question must say that Enter skips: %q", question)
+	}
+}
