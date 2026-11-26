@@ -54,6 +54,7 @@ func Run(loaded config.Loaded, loadErr error, out io.Writer) error {
 
 	checkDatabases(r, cfg)
 	checkSSH(r, cfg.SSH.Binary)
+	checkShims(r, cfg)
 
 	if r.failed {
 		return errors.New("some checks failed")

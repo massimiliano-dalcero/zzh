@@ -183,6 +183,9 @@ func TestIntegrationKeyAndPasswordWithRealSSH(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Databases = map[string]config.Database{"test": {Path: dbPath}}
 	cfg.WarnEnvPassword = false
+	// These tests run zzh without a terminal: with the default
+	// confirm.mode a real confirmation dialog would appear on screen.
+	cfg.Confirm.Mode = "never"
 	cfg.SSH.Binary = sshBinary
 	cfg.SSH.ExtraOptions = []string{
 		"StrictHostKeyChecking=no",
@@ -240,6 +243,9 @@ func TestIntegrationPassthroughUnknownHost(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Databases = map[string]config.Database{"test": {Path: vaulttest.NewDatabase(t)}}
 	cfg.WarnEnvPassword = false
+	// These tests run zzh without a terminal: with the default
+	// confirm.mode a real confirmation dialog would appear on screen.
+	cfg.Confirm.Mode = "never"
 	cfg.SSH.Binary = sshBinary
 	configPath := filepath.Join(t.TempDir(), "config.json")
 	data, err := json.Marshal(cfg)
@@ -276,6 +282,9 @@ func TestIntegrationDaemonKeepsPassword(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Databases = map[string]config.Database{"test": {Path: vaulttest.NewDatabase(t)}}
 	cfg.WarnEnvPassword = false
+	// These tests run zzh without a terminal: with the default
+	// confirm.mode a real confirmation dialog would appear on screen.
+	cfg.Confirm.Mode = "never"
 	configPath := filepath.Join(t.TempDir(), "config.json")
 	data, err := json.Marshal(cfg)
 	if err != nil {
@@ -360,6 +369,9 @@ func TestIntegrationKeyOverride(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Databases = map[string]config.Database{"test": {Path: dbPath}}
 	cfg.WarnEnvPassword = false
+	// These tests run zzh without a terminal: with the default
+	// confirm.mode a real confirmation dialog would appear on screen.
+	cfg.Confirm.Mode = "never"
 	cfg.SSH.Binary = sshBinary
 	cfg.SSH.ExtraOptions = []string{"StrictHostKeyChecking=no", "UserKnownHostsFile=" + knownHosts, "BatchMode=yes"}
 	configPath := filepath.Join(t.TempDir(), "config.json")

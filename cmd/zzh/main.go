@@ -398,6 +398,17 @@ func connectHost(options globalOptions, args []string, asShim bool) error {
 		return connect.Run(loaded.Config.SSH.Binary, args, nil)
 	}
 
+	// The confirmation of the program asking for the connection (D-061):
+	// it may also ask the master password, in a dialog, when the database
+	// is locked and there is no terminal.
+	approvals, err := session.Approvals()
+	if err != nil {
+		return err
+	}
+	consent := connect.NewConsent(loaded.Config.Confirm, prompt.TerminalAvailable(), invocation.Target, approvals, os.Getpid())
+	consent.Confirm = prompt.Confirm
+	session.PasswordFallback = consent.UnlockDialog
+
 	v, err := session.OpenVault(loaded.Config, options.database)
 	if err != nil {
 		// As a shim, a database that is not unlocked for any reason (Enter
@@ -424,6 +435,24 @@ func connectHost(options globalOptions, args []string, asShim bool) error {
 	if invocation.KeyName != "" {
 		chosenKey, err = v.PrivateKey(invocation.KeyName)
 		if err != nil {
+			return err
+		}
+	}
+
+	// KeePass data is about to be used (a stored host, or a key chosen with
+	// --key): the program asking may need the user's confirmation. A refusal
+	// leaves the plain ssh through the shim, as for a locked database, and
+	// is an error for "zzh <host>".
+	if found || chosenKey != nil {
+		subject := invocation.Target
+		if found {
+			subject = host.Name
+		}
+		if err := consent.Check(subject); err != nil {
+			if asShim {
+				style.PrintNotice(os.Stderr, err.Error()+"; running plain ssh")
+				return connect.Run(loaded.Config.SSH.Binary, args, nil)
+			}
 			return err
 		}
 	}

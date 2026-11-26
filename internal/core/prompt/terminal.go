@@ -43,6 +43,18 @@ var openControllingTerminal = openPlatformTerminal
 // ErrNoTerminal means that there is nobody to ask: no terminal at all (cron,
 // services, programs started from a desktop menu) or, on Windows, a console
 // nobody can see (see terminal_windows.go).
+// TerminalAvailable reports whether a question could be asked now: stdin
+// is a terminal or a visible controlling terminal exists. It decides
+// between a terminal question and a graphical dialog.
+func TerminalAvailable() bool {
+	tty, err := openTerminal()
+	if err != nil {
+		return false
+	}
+	tty.close()
+	return true
+}
+
 func openTerminal() (*terminal, error) {
 	if term.IsTerminal(int(os.Stdin.Fd())) {
 		return &terminal{input: os.Stdin, output: os.Stderr, close: func() {}}, nil

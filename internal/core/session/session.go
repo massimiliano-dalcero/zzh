@@ -11,8 +11,10 @@ import (
 	"fmt"
 	"os"
 
+	"zzh/internal/core/approval"
 	"zzh/internal/core/config"
 	"zzh/internal/core/daemon"
+	"zzh/internal/core/gui"
 	"zzh/internal/core/prompt"
 	"zzh/internal/core/shim"
 	"zzh/internal/core/style"
@@ -146,6 +148,19 @@ func obtain(cfg config.Config, databaseName string) (credentials, error) {
 	}
 
 	password, err := askPassword(database)
+	if errors.Is(err, prompt.ErrNoTerminal) && PasswordFallback != nil {
+		// No terminal: the connection's confirmation dialog can ask the
+		// password instead (D-061). gui.ErrUnavailable means there is no
+		// graphical session either, and the usual error below applies.
+		password, err = PasswordFallback(database)
+		switch {
+		case err == nil && password != "":
+			return credentials{database: database, password: password, source: fromTerminal}, nil
+		case err != nil && !errors.Is(err, gui.ErrUnavailable):
+			return credentials{}, fmt.Errorf("%w: %v", ErrLocked, err)
+		}
+		err = prompt.ErrNoTerminal
+	}
 	if errors.Is(err, prompt.ErrNoTerminal) {
 		// Scripts, scheduled tasks, programs started without a visible
 		// console (e.g. git run by an editor): nobody can type the password.
@@ -163,6 +178,11 @@ func obtain(cfg config.Config, databaseName string) (credentials, error) {
 	}
 	return credentials{database: database, password: password, source: fromTerminal}, nil
 }
+
+// PasswordFallback, when set, asks the master password when no terminal can
+// receive the question: the connection sets it to its confirmation dialog.
+// A password obtained this way is handed to the daemon like a typed one.
+var PasswordFallback func(database config.ResolvedDatabase) (string, error)
 
 // SkipWithEmptyPassword lets the user decline the unlock by pressing Enter
 // at the password question, which then says so. zzh started as ssh through
@@ -232,19 +252,51 @@ func Unlock(cfg config.Config, databaseName string) (config.ResolvedDatabase, er
 
 // Lock makes the daemon forget the selected database, or every database
 // when all is true.
+//
+// It also forgets the "Allow for a while" authorizations of the
+// confirmation dialog (D-061): locking means "nobody uses my keys any more",
+// and an authorization left behind would let a program connect again as
+// soon as the database is unlocked.
 func Lock(cfg config.Config, databaseName string, all bool) error {
-	client, err := daemonClient()
+	clearErr := clearApprovals()
+
+	lockErr := func() error {
+		client, err := daemonClient()
+		if err != nil {
+			return err
+		}
+		if all {
+			return client.Lock("")
+		}
+		database, err := cfg.Resolve(databaseName)
+		if err != nil {
+			return err
+		}
+		return client.Lock(database.Path)
+	}()
+
+	if lockErr != nil {
+		return lockErr
+	}
+	return clearErr
+}
+
+// Approvals returns the store of the confirmation dialog's authorizations,
+// kept next to the daemon's files in the user's cache folder.
+func Approvals() (approval.Store, error) {
+	dir, err := daemon.DefaultDir()
+	if err != nil {
+		return approval.Store{}, err
+	}
+	return approval.NewStore(dir), nil
+}
+
+func clearApprovals() error {
+	store, err := Approvals()
 	if err != nil {
 		return err
 	}
-	if all {
-		return client.Lock("")
-	}
-	database, err := cfg.Resolve(databaseName)
-	if err != nil {
-		return err
-	}
-	return client.Lock(database.Path)
+	return store.Clear()
 }
 
 // Status lists the databases the daemon keeps unlocked; daemon.ErrNotRunning
@@ -259,11 +311,15 @@ func Status() ([]daemon.Unlocked, error) {
 
 // StopDaemon ends the daemon, forgetting every password.
 func StopDaemon() error {
+	clearErr := clearApprovals()
 	client, err := daemonClient()
 	if err != nil {
 		return err
 	}
-	return client.Stop()
+	if err := client.Stop(); err != nil {
+		return err
+	}
+	return clearErr
 }
 
 func remember(cfg config.Config, path, password string) error {

@@ -58,6 +58,9 @@ func shimSetup(t *testing.T, programs ...string) (string, []string) {
 func writeConfig(t *testing.T, cfg config.Config) string {
 	t.Helper()
 	cfg.WarnEnvPassword = false
+	// These tests run zzh without a terminal: with the default
+	// confirm.mode a real confirmation dialog would appear on screen.
+	cfg.Confirm.Mode = "never"
 	path := filepath.Join(t.TempDir(), "config.json")
 	data, err := json.Marshal(cfg)
 	if err != nil {

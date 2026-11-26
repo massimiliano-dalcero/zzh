@@ -54,12 +54,26 @@ type Config struct {
 	// is set (D-028).
 	WarnEnvPassword bool `json:"warn_env_password"`
 
-	Daemon DaemonConfig `json:"daemon"`
-	Lock   LockConfig   `json:"lock"`
-	SSH    SSHConfig    `json:"ssh"`
-	Keys   KeysConfig   `json:"keys"`
-	Output OutputConfig `json:"output"`
-	Shim   ShimConfig   `json:"shim"`
+	Daemon  DaemonConfig  `json:"daemon"`
+	Lock    LockConfig    `json:"lock"`
+	SSH     SSHConfig     `json:"ssh"`
+	Keys    KeysConfig    `json:"keys"`
+	Output  OutputConfig  `json:"output"`
+	Shim    ShimConfig    `json:"shim"`
+	Confirm ConfirmConfig `json:"confirm"`
+}
+
+// ConfirmConfig decides when the user must confirm that a program may
+// connect with the keys and passwords stored in KeePass (D-061).
+type ConfirmConfig struct {
+	// Mode is "background" (only programs without a visible terminal: an
+	// editor's git, scheduled tasks), "always" (every connection using
+	// KeePass data; in a terminal the question is asked there) or "never".
+	Mode string `json:"mode"`
+
+	// RememberFor is how long "Allow for a while" lasts, for that program
+	// and that host.
+	RememberFor Duration `json:"remember_for"`
 }
 
 // ShimConfig controls what happens when zzh is started through the ssh,
@@ -179,6 +193,10 @@ func Defaults() Config {
 			Stripes: true,
 		},
 		Shim: ShimConfig{Enabled: true},
+		Confirm: ConfirmConfig{
+			Mode:        "background",
+			RememberFor: Duration(15 * time.Minute),
+		},
 	}
 }
 
@@ -284,6 +302,15 @@ func (c Config) Validate() error {
 		if !strings.Contains(option, "=") {
 			return fmt.Errorf("ssh.extra_options: %q must be in the form Key=Value", option)
 		}
+	}
+
+	switch c.Confirm.Mode {
+	case "background", "always", "never":
+	default:
+		return fmt.Errorf("confirm.mode %q is not valid (use background, always or never)", c.Confirm.Mode)
+	}
+	if c.Confirm.RememberFor <= 0 {
+		return fmt.Errorf("confirm.remember_for must be a positive duration, e.g. 15m")
 	}
 
 	switch c.Output.Color {
