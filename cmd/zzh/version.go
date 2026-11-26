@@ -7,7 +7,7 @@ import (
 // releaseVersion is the single place where the zzh version is defined.
 // Change it when preparing a release, and tag the release commit with the
 // same value prefixed by "v" (git tag -a v0.9.0).
-const releaseVersion = "0.10.0"
+const releaseVersion = "0.10.1"
 
 // fullVersion is the version shown by "zzh version" and by the help.
 //

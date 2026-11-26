@@ -301,7 +301,7 @@ $env:CGO_ENABLED = "0"; go build -trimpath -ldflags "-s -w" -o zzh.exe ./cmd/zzh
 
 The version is defined in one place, `releaseVersion` in
 `cmd/zzh/version.go`. A binary built from a git checkout also shows the
-commit it comes from (`zzh v0.10.0+fe5e447`, `.dirty` with uncommitted
+commit it comes from (`zzh v0.10.1+a80f360`, `.dirty` with uncommitted
 changes); add `-buildvcs=false` to get exactly the release version, as the
 published binaries do.
 
