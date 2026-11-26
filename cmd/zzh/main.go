@@ -102,7 +102,8 @@ Usage:
                                   --system, for every user: needs sudo or an
                                   administrator terminal) and put it in PATH;
                                   --shim also makes ssh, scp and sftp run
-                                  through zzh (on Windows only with --system)
+                                  through zzh (on Windows only with --system);
+                                  "ssh --zzh <args>" then runs "zzh <args>"
   zzh uninstall [--system] --shim [--all]
                                   remove the shims (--all: and zzh itself;
                                   configuration and databases are kept)
@@ -304,7 +305,16 @@ func runConnect(options globalOptions, args []string) error {
 // A system-wide shim runs for every user of the machine, root included, and
 // for every program that calls ssh, so it must never get in the way of
 // someone who does not use zzh or of a command zzh does not understand.
+//
+// "ssh --zzh <zzh arguments>" is the way back to zzh itself: "ssh --zzh ls"
+// is "zzh ls". Only the first argument is checked, and ssh has no long
+// options, so the prefix can never collide with an ssh command line; zzh
+// subcommands are otherwise not recognized, so that "ssh ls" still means
+// the host "ls" (D-056, D-058).
 func runAsSSH(args []string) error {
+	if len(args) > 0 && args[0] == shim.ZzhPrefix {
+		return run(args[1:])
+	}
 	if err := shim.EnterNested(); err != nil {
 		return err
 	}

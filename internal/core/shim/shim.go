@@ -28,6 +28,10 @@ const (
 	ProgramSFTP = "sftp"
 )
 
+// ZzhPrefix, as the first argument of zzh started as ssh, switches back to
+// the zzh command line: "ssh --zzh ls" behaves as "zzh ls".
+const ZzhPrefix = "--zzh"
+
 // EnvAsSSH tells a zzh process to behave as ssh although it was not started
 // with that name. scp and sftp are given the zzh executable itself as their
 // ssh program (-S), because on Linux and macOS the path of the link is not

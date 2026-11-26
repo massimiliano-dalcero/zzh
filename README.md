@@ -752,7 +752,10 @@ What zzh does when it is started as `ssh`:
   serves every user of the machine, root included), and a locked database
   when nobody can type the password (a background program: a notice, then
   the plain ssh);
-- zzh subcommands are not recognized: `ssh ls` is the host `ls`.
+- zzh subcommands are not recognized: `ssh ls` is the host `ls`. To reach
+  zzh itself through the shim, start with `--zzh` (ssh has no long
+  options, so it can never clash): `ssh --zzh ls` is `zzh ls`,
+  `ssh --zzh --db work key ls` is `zzh --db work key ls`.
 
 Started as `scp` or `sftp`, zzh runs the real program with `-S <zzh>`, so
 the copy is done by OpenSSH and the connection by zzh. This is needed

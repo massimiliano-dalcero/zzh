@@ -125,6 +125,16 @@ func TestIntegrationShimSSH(t *testing.T) {
 		t.Errorf("ssh ls must mean the host ls, got:\n%s", output)
 	}
 
+	// "ssh --zzh <args>" is zzh itself.
+	output = runLink(t, shimFolder, "ssh", withDatabase, "--zzh", "ls", "--grep")
+	if !strings.HasPrefix(output, "stored\t") || !strings.Contains(output, "192.0.2.20:2200") {
+		t.Errorf("ssh --zzh ls must list the hosts as zzh ls, got:\n%s", output)
+	}
+	output = runLink(t, shimFolder, "ssh", withDatabase, "--zzh", "version")
+	if !strings.HasPrefix(output, "zzh v") {
+		t.Errorf("ssh --zzh version must print the zzh version, got:\n%s", output)
+	}
+
 	// A user who never set up zzh: plain ssh, not a word from zzh.
 	withoutDatabase := append(env, "ZZH_CONFIG="+writeConfig(t, config.Defaults()))
 	output = runLink(t, shimFolder, "ssh", withoutDatabase, "-G", "stored")
