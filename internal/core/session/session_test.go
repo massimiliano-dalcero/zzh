@@ -3,6 +3,7 @@ package session
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,6 +12,7 @@ import (
 
 	"zzh/internal/core/config"
 	"zzh/internal/core/daemon"
+	"zzh/internal/core/prompt"
 	"zzh/internal/core/vault"
 )
 
@@ -49,9 +51,17 @@ func TestOpenVaultUnknownBookmark(t *testing.T) {
 	}
 }
 
-// Under "go test" stdin is not a terminal, as under git: the prompt must
-// refuse to run instead of hanging, and the error must say what to do.
+// With nobody to ask (a script, a scheduled task) the prompt must refuse to
+// run instead of hanging, and the error must say what to do. The absence of
+// a terminal is simulated: run from a console, the real prompt would find
+// the controlling terminal and wait for an answer.
 func TestOpenVaultRequiresTerminal(t *testing.T) {
+	original := passwordPrompt
+	passwordPrompt = func(string) (string, error) {
+		return "", fmt.Errorf("cannot ask for the password: %w", prompt.ErrNoTerminal)
+	}
+	t.Cleanup(func() { passwordPrompt = original })
+
 	cfg := config.Defaults()
 	cfg.Databases = map[string]config.Database{"personal": {Path: "unused.kdbx"}}
 

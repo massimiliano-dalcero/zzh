@@ -145,7 +145,10 @@ func obtain(cfg config.Config, databaseName string) (credentials, error) {
 
 	password, err := askPassword(database)
 	if errors.Is(err, prompt.ErrNoTerminal) {
-		// Typical under git or in scripts: nobody can type the password.
+		// Scripts, scheduled tasks, programs started without a visible
+		// console (e.g. git run by an editor): nobody can type the password.
+		// git run from a terminal is not this case: the question goes to
+		// the controlling terminal (see the prompt package).
 		return credentials{}, fmt.Errorf("%w and there is no terminal to ask the password: run \"zzh unlock\" first", ErrLocked)
 	}
 	if err != nil {
@@ -278,6 +281,11 @@ func policy(cfg config.Config) daemon.Policy {
 	return daemon.Policy{IdleTimeout: cfg.Lock.IdleTimeout.Std(), MaxLifetime: cfg.Lock.MaxLifetime.Std()}
 }
 
+// passwordPrompt asks the master password; a variable so that tests can
+// simulate the absence of a terminal even when they run from a console,
+// where the real prompt would find it and wait for an answer.
+var passwordPrompt = prompt.Password
+
 func askPassword(database config.ResolvedDatabase) (string, error) {
-	return prompt.Password(fmt.Sprintf("KeePass password for %q (%s): ", database.Name, database.Path))
+	return passwordPrompt(fmt.Sprintf("KeePass password for %q (%s): ", database.Name, database.Path))
 }

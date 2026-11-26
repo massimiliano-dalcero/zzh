@@ -56,8 +56,45 @@ func TestReadLineEOF(t *testing.T) {
 	}
 }
 
-func TestLineWithoutTerminal(t *testing.T) {
+// withoutControllingTerminal simulates a process with no terminal to fall
+// back on (cron, a hidden console). Without it, running the tests from a
+// console would open the real one and wait for an answer.
+func withoutControllingTerminal(t *testing.T) {
+	t.Helper()
+	original := openControllingTerminal
+	openControllingTerminal = func() (*terminal, error) {
+		return nil, errors.New("simulated: no controlling terminal")
+	}
+	t.Cleanup(func() { openControllingTerminal = original })
+}
+
+// Under go test stdin is not a terminal; with no controlling terminal
+// either, both questions must fail with ErrNoTerminal instead of reading
+// from stdin.
+func TestNoTerminal(t *testing.T) {
+	withoutControllingTerminal(t)
+
 	if _, err := Line("question? "); !errors.Is(err, ErrNoTerminal) {
-		t.Fatalf("expected ErrNoTerminal under go test, got %v", err)
+		t.Fatalf("Line: expected ErrNoTerminal, got %v", err)
+	}
+	if _, err := Password("password: "); !errors.Is(err, ErrNoTerminal) {
+		t.Fatalf("Password: expected ErrNoTerminal, got %v", err)
+	}
+}
+
+// When stdin is redirected the controlling terminal must be tried: this is
+// what lets "git push" ask the password in the window the user typed it in.
+func TestControllingTerminalIsTried(t *testing.T) {
+	tried := false
+	original := openControllingTerminal
+	openControllingTerminal = func() (*terminal, error) {
+		tried = true
+		return nil, errors.New("simulated")
+	}
+	t.Cleanup(func() { openControllingTerminal = original })
+
+	_, _ = Line("question? ")
+	if !tried {
+		t.Fatalf("with stdin not a terminal the controlling terminal was not tried")
 	}
 }

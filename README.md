@@ -499,9 +499,18 @@ For every command, in order:
 3. the terminal: you are asked, and the password is handed to the daemon
    (started automatically) so you are not asked again.
 
-Commands without a terminal — git, scripts, cron — therefore need either an
-unlocked database or `ZZH_PASSWORD`; otherwise they stop with a message
-asking for `zzh unlock`.
+The question is asked on the terminal you are using even when the standard
+input and output of zzh are redirected, as when git runs it: like OpenSSH,
+zzh falls back to the controlling terminal (`/dev/tty`, or the console on
+Windows). So `git push` typed in a terminal asks the password there.
+
+Commands with no terminal anyone can see — scripts, cron, scheduled tasks,
+git started by an editor in the background — need either an unlocked
+database or `ZZH_PASSWORD`; otherwise they stop with a message asking for
+`zzh unlock`. On Windows a console counts as visible when it has a visible
+window or is a pseudo console (Windows Terminal, the VS Code terminal, an
+ssh session); a hidden console never receives questions, so a background
+program is never left waiting for an answer nobody can give.
 
 ### The daemon
 
@@ -626,9 +635,11 @@ git config core.sshCommand "/path/to/zzh"
 git config ssh.variant ssh
 # ...or for all of them: git config --global ...
 
-# 4. Unlock before using git (git gives zzh no terminal to ask the password)
-zzh unlock
+# 4. Use git: from a terminal the password is asked there if needed
 git push
+# Tools that run git in the background (editors, scheduled jobs) have no
+# terminal to ask on: unlock first
+zzh unlock
 ```
 
 On Windows use forward slashes in the path, e.g.
@@ -851,7 +862,7 @@ the bookmarked databases and the ssh client.
 | `... is not the native Windows OpenSSH` | `ssh.binary` points explicitly to an MSYS/Cygwin build (e.g. Git's). Use `zzh config unset ssh.binary` to let zzh find the native one, or set it to `C:/Windows/System32/OpenSSH/ssh.exe` |
 | `Permission denied (publickey)` only under git | git runs zzh with its own folders first in `PATH`. zzh skips Git's `ssh.exe` there, unless `ssh.binary` points to it explicitly: check with `zzh doctor`. |
 | `the database uses the Argon2id key derivation` | Not supported yet. In KeePassXC: *Database settings → Security → Encryption settings*, switch to Argon2d. |
-| `the database is locked ... there is no terminal` | A command without terminal (git, a script). Run `zzh unlock` first, or set `ZZH_PASSWORD`. |
+| `the database is locked ... there is no terminal` | A command with no visible terminal (a script, a scheduled task, git run by an editor). Run `zzh unlock` first, or set `ZZH_PASSWORD`. |
 | `cannot decrypt the database: wrong password or corrupted file` | Wrong master password. If it says it came from `ZZH_PASSWORD`, the variable is stale or belongs to another database. |
 | `host "x" not found` / plain ssh runs | `x` is neither a name, an alias nor an address in KeePass: check `zzh ls`. |
 | `... is used by more than one entry` | Two entries share a name or an alias (possibly created in KeePassXC): rename one. |

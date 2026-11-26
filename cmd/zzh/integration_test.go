@@ -267,7 +267,7 @@ func TestIntegrationPassthroughUnknownHost(t *testing.T) {
 
 // The real daemon: "zzh unlock" starts a detached "zzh daemon run" process,
 // after which commands work without ZZH_PASSWORD and without a terminal
-// (as under git); "zzh lock" makes them refuse again.
+// (as in a scheduled task); "zzh lock" makes them refuse again.
 func TestIntegrationDaemonKeepsPassword(t *testing.T) {
 	if testing.Short() {
 		t.Skip("integration test skipped in -short mode")
@@ -292,6 +292,9 @@ func TestIntegrationDaemonKeepsPassword(t *testing.T) {
 	runZzh := func(env []string, args ...string) (string, error) {
 		command := exec.Command(zzh, args...)
 		command.Env = env
+		// Without this, running the tests from a console would let zzh find
+		// the controlling terminal and wait for a password after "lock".
+		detachFromTerminal(command)
 		output, err := command.CombinedOutput()
 		return string(output), err
 	}

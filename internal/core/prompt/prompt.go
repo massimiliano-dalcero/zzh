@@ -6,38 +6,39 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"strings"
 
 	"golang.org/x/term"
 )
 
-// ErrNoTerminal is returned when there is nobody to ask: stdin is a pipe or
-// a file, as when zzh runs under git or in a script.
-var ErrNoTerminal = errors.New("stdin is not a terminal")
+// ErrNoTerminal is returned when there is nobody to ask: neither stdin nor
+// the controlling terminal can be used (scripts, scheduled tasks, programs
+// started without a visible console). See openTerminal.
+var ErrNoTerminal = errors.New("no terminal to ask")
 
 // Password asks for a secret without echoing it.
 //
-// The prompt is written to stderr so that it never ends up in the output of
-// a command redirected to a file or a pipe. The secret is read from stdin,
-// which must be an interactive terminal: reading a password from a pipe
-// would encourage storing it in scripts, which zzh is meant to avoid.
+// The question goes to the terminal chosen by openTerminal: stdin/stderr in
+// an ordinary shell, the controlling terminal when the standard streams are
+// redirected (git). Either way it never ends up in the output of a command
+// redirected to a file or a pipe. The secret is never read from a pipe:
+// that would encourage storing it in scripts, which zzh is meant to avoid.
 //
 // x/term handles the platform differences (termios on Linux/macOS, console
 // mode on Windows) and restores the terminal state even if reading fails.
 func Password(message string) (string, error) {
-	inputHandle := int(os.Stdin.Fd())
-
-	if !term.IsTerminal(inputHandle) {
-		return "", fmt.Errorf("cannot ask for the password: %w", ErrNoTerminal)
+	tty, err := openTerminal()
+	if err != nil {
+		return "", fmt.Errorf("cannot ask for the password: %w", err)
 	}
+	defer tty.close()
 
-	fmt.Fprint(os.Stderr, message)
-	secret, err := term.ReadPassword(inputHandle)
+	fmt.Fprint(tty.output, message)
+	secret, err := term.ReadPassword(int(tty.input.Fd()))
 
 	// ReadPassword swallows the Enter key, so the newline is printed here to
 	// keep the following output on its own line.
-	fmt.Fprintln(os.Stderr)
+	fmt.Fprintln(tty.output)
 
 	if err != nil {
 		return "", fmt.Errorf("cannot read the password: %w", err)
@@ -59,22 +60,24 @@ var ErrCancelled = errors.New("cancelled")
 // a "\n" that never comes. Raw mode gives the same behaviour whatever mode
 // the console was left in, and the previous mode is restored afterwards.
 func Line(message string) (string, error) {
-	inputHandle := int(os.Stdin.Fd())
-	if !term.IsTerminal(inputHandle) {
-		return "", fmt.Errorf("cannot ask the question: %w", ErrNoTerminal)
+	tty, err := openTerminal()
+	if err != nil {
+		return "", fmt.Errorf("cannot ask the question: %w", err)
 	}
+	defer tty.close()
 
-	fmt.Fprint(os.Stderr, message)
+	inputHandle := int(tty.input.Fd())
+	fmt.Fprint(tty.output, message)
 
 	previous, err := term.MakeRaw(inputHandle)
 	if err != nil {
 		return "", fmt.Errorf("cannot prepare the terminal: %w", err)
 	}
-	line, readErr := readLine(os.Stdin, os.Stderr)
+	line, readErr := readLine(tty.input, tty.output)
 	restoreErr := term.Restore(inputHandle, previous)
 
 	// In raw mode Enter does not move to the next line by itself.
-	fmt.Fprint(os.Stderr, "\r\n")
+	fmt.Fprint(tty.output, "\r\n")
 
 	if readErr != nil {
 		return "", readErr
