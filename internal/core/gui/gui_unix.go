@@ -62,7 +62,7 @@ func ask(request Request) (Answer, error) {
 // label and exits 1 like Cancel, the timeout exits 5.
 func zenityQuestion(ctx context.Context, request Request) (Choice, error) {
 	command := exec.CommandContext(ctx, "zenity", "--question", "--title=zzh",
-		"--text="+request.Message,
+		"--text="+request.plainText(),
 		"--ok-label="+labelOnce, "--cancel-label="+labelDeny,
 		"--extra-button="+request.RememberLabel,
 		"--timeout="+strconv.Itoa(int(request.Timeout.Seconds())))
@@ -85,7 +85,7 @@ func zenityQuestion(ctx context.Context, request Request) (Choice, error) {
 func kdialogQuestion(ctx context.Context, request Request) (Choice, error) {
 	command := exec.CommandContext(ctx, "kdialog", "--title", "zzh",
 		"--yes-label", labelOnce, "--no-label", request.RememberLabel, "--cancel-label", labelDeny,
-		"--yesnocancel", request.Message)
+		"--yesnocancel", request.plainText())
 	err := command.Run()
 	if err == nil {
 		return AllowOnce, nil

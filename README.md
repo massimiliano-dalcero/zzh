@@ -950,14 +950,18 @@ dialog:
 
 ```
 ┌ zzh ──────────────────────────────────────────────────────────────┐
-│ git.exe (started by Code.exe) wants to connect to "github" with   │
-│ the keys and passwords stored in KeePass.                         │
+│ (shield)  git.exe (started by Code.exe) wants to connect to       │
+│           "github".                                               │
+│           It will use the keys and passwords stored in KeePass.   │
+│           Deny it to run the plain ssh instead.                   │
+│           Program: C:\Program Files\Git\cmd\git.exe               │
 │                                                                   │
-│ Program: C:\Program Files\Git\cmd\git.exe                         │
-│                                                                   │
-│   [ Allow once ]   [ Allow for 15 minutes ]   [ Deny ]            │
+│           This window closes in 60 s and then denies the request. │
+│        [ Allow once ]   [ Allow for 15 minutes ]   [ Deny ]       │
 └───────────────────────────────────────────────────────────────────┘
 ```
+
+Enter means *Allow once*, Esc or the close button *Deny*.
 
 - **Who is asking**: zzh walks up the chain of programs that led to the
   connection, skipping zzh, ssh, scp and sftp themselves, and names the
@@ -987,9 +991,12 @@ When the dialog appears is set by `confirm.mode`:
 Connections that do not use KeePass data (hosts not in KeePass, without
 `--key`) never ask anything.
 
-The dialog is drawn by the system's own tools: a WinForms window through
-the Windows PowerShell on Windows, `osascript` on macOS, `zenity` or
-`kdialog` on Linux. It is never shown where nobody could see it: not in a
+On Windows the dialog is a native window drawn by zzh itself (the standard
+Windows controls, through the system DLLs: no helper program, no
+PowerShell, and the password never leaves zzh); it is topmost, and flashes
+in the taskbar when Windows does not let a background program take the
+focus. On macOS it is `osascript`, on Linux `zenity` or `kdialog`. It is
+never shown where nobody could see it: not in a
 Windows service (session 0), not in an ssh session into a Mac, not on Linux
 without a display or without zenity/kdialog. In those cases, with
 `confirm.mode background`, a program without a terminal **does not** get
@@ -1272,7 +1279,7 @@ internal/core/        building blocks shared by the commands
   session/            where the master password comes from; open and modify
   shim/               zzh started as ssh, scp or sftp; its own real path
   caller/             which program asked for the connection (process tree)
-  gui/                the confirmation dialog, drawn by the system's tools
+  gui/                the confirmation dialog (native Win32 on Windows)
   approval/           "Allow for a while" authorizations, per program and host
   sshcli/             ssh command line parsing, OpenSSH version detection
   sshkey/             key generation and import

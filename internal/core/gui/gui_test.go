@@ -34,12 +34,19 @@ func TestDialogTimesOut(t *testing.T) {
 	if !Available() {
 		t.Skip("no graphical session")
 	}
+	// ZZH_TEST_GUI_TIMEOUT keeps it open longer, e.g. to look at it.
+	timeout := 2 * time.Second
+	if custom, err := time.ParseDuration(os.Getenv("ZZH_TEST_GUI_TIMEOUT")); err == nil {
+		timeout = custom
+	}
 	answer, err := Ask(Request{
-		Message:       "zzh test dialog: it closes by itself.\nDo not click.",
+		Heading:       `zzh test dialog: git.exe (started by Code.exe) wants to connect to "github".`,
+		Message:       "It closes by itself. Do not click.",
+		Detail:        `Program: C:\Program Files\Git\cmd\git.exe`,
 		AskPassword:   true,
-		PasswordLabel: "Password (test)",
+		PasswordLabel: `Master password of "default":`,
 		RememberLabel: "Allow for 15 minutes",
-		Timeout:       2 * time.Second,
+		Timeout:       timeout,
 	})
 	if err != nil {
 		t.Fatalf("dialog failed: %v", err)

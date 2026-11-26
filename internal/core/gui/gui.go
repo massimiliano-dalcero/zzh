@@ -32,8 +32,16 @@ const (
 
 // Request describes one dialog.
 type Request struct {
-	// Message explains who asks for what; it may span several lines.
+	// Heading says who asks for what, in one sentence shown in bold where
+	// the platform allows it.
+	Heading string
+
+	// Message explains the consequences of the answers.
 	Message string
+
+	// Detail is secondary information (the program's full path), shown
+	// dimmed where the platform allows it.
+	Detail string
 
 	// AskPassword adds a hidden field for the master password, labelled
 	// PasswordLabel.
@@ -81,6 +89,18 @@ func Ask(request Request) (Answer, error) {
 		request.Timeout = time.Minute
 	}
 	return ask(request)
+}
+
+// plainText joins heading, message and detail for the platforms whose
+// dialogs show a single block of text (macOS, Linux).
+func (r Request) plainText() string {
+	var parts []string
+	for _, part := range []string{r.Heading, r.Message, r.Detail} {
+		if part != "" {
+			parts = append(parts, part)
+		}
+	}
+	return strings.Join(parts, "\n\n")
 }
 
 // parseAnswer reads what the platform helpers print: the choice ("once",

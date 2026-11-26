@@ -104,9 +104,12 @@ func (c *Consent) rememberLabel() string {
 // receive the question. gui.ErrUnavailable means no dialog is possible
 // either, and the session reports the usual "no terminal" error.
 func (c *Consent) UnlockDialog(database config.ResolvedDatabase) (string, error) {
+	who := c.caller()
 	answer, err := c.Ask(gui.Request{
-		Message: fmt.Sprintf("%s wants to connect to %q through zzh.\n\nThe KeePass database %q is locked: type its master password to allow the connection, or deny it (the plain ssh will run instead).",
-			c.caller().Describe(), c.Target, database.Name),
+		Heading: fmt.Sprintf("%s wants to connect to %q through zzh.", who.Describe(), c.Target),
+		Message: fmt.Sprintf("The KeePass database %q is locked: type its master password to allow the connection, or deny it (the plain ssh will run instead).",
+			database.Name),
+		Detail:        "Program: " + identityText(who),
 		AskPassword:   true,
 		PasswordLabel: fmt.Sprintf("Master password of %q:", database.Name),
 		RememberLabel: c.rememberLabel(),
@@ -156,8 +159,9 @@ func (c *Consent) Check(host string) error {
 	}
 
 	answer, err := c.Ask(gui.Request{
-		Message: fmt.Sprintf("%s wants to connect to %q with the keys and passwords stored in KeePass.\n\nProgram: %s",
-			who.Describe(), host, identityText(who)),
+		Heading:       fmt.Sprintf("%s wants to connect to %q.", who.Describe(), host),
+		Message:       "It will use the keys and passwords stored in KeePass. Deny it to run the plain ssh instead.",
+		Detail:        "Program: " + identityText(who),
 		RememberLabel: c.rememberLabel(),
 		Timeout:       time.Minute,
 	})

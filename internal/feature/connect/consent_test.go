@@ -93,8 +93,8 @@ func TestConsentUnlockDialog(t *testing.T) {
 	if err != nil || password != "master" {
 		t.Fatalf("unexpected result %q %v", password, err)
 	}
-	if !request.AskPassword || !strings.Contains(request.Message, "git.exe (started by Code.exe)") ||
-		!strings.Contains(request.Message, `"github.com"`) || request.RememberLabel != "Allow for 15 minutes" {
+	if !request.AskPassword || !strings.Contains(request.Heading, "git.exe (started by Code.exe)") ||
+		!strings.Contains(request.Heading, `"github.com"`) || request.RememberLabel != "Allow for 15 minutes" {
 		t.Fatalf("unexpected request %+v", request)
 	}
 

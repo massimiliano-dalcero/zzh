@@ -60,7 +60,7 @@ func ask(request Request) (Answer, error) {
 
 	command := exec.CommandContext(ctx, "osascript", "-e", dialogScript)
 	command.Env = append(os.Environ(),
-		"ZZH_DIALOG_MESSAGE="+request.Message,
+		"ZZH_DIALOG_MESSAGE="+request.plainText(),
 		"ZZH_DIALOG_PASSWORD="+passwordFlag,
 		"ZZH_DIALOG_PASSWORD_LABEL="+request.PasswordLabel,
 		"ZZH_DIALOG_ONCE="+labelOnce,
