@@ -604,10 +604,12 @@ input and output of zzh are redirected, as when git runs it: like OpenSSH,
 zzh falls back to the controlling terminal (`/dev/tty`, or the console on
 Windows). So `git push` typed in a terminal asks the password there.
 
-Commands with no terminal anyone can see — scripts, cron, scheduled tasks,
-git started by an editor in the background — need either an unlocked
-database or `ZZH_PASSWORD`; otherwise they stop with a message asking for
-`zzh unlock`. On Windows a console counts as visible when it has a visible
+Connections started by programs with no terminal anyone can see — git
+started by an editor in the background, scheduled tasks — ask the password
+in the [confirmation dialog](#when-another-program-runs-ssh-the-confirmation-dialog)
+when there is a graphical session. Without one (cron, services, servers)
+they need an unlocked database or `ZZH_PASSWORD`; otherwise they stop with
+a message asking for `zzh unlock`. On Windows a console counts as visible when it has a visible
 window or is a pseudo console (Windows Terminal, the VS Code terminal, an
 ssh session); a hidden console never receives questions, so a background
 program is never left waiting for an answer nobody can give.
@@ -744,9 +746,8 @@ git config ssh.variant ssh
 
 # 4. Use git: from a terminal the password is asked there if needed
 git push
-# Tools that run git in the background (editors, scheduled jobs) have no
-# terminal to ask on: unlock first
-zzh unlock
+# Tools that run git in the background (an editor's Sync button) show the
+# zzh confirmation dialog, which also asks the password when needed
 ```
 
 On Windows use forward slashes in the path, e.g.
@@ -939,20 +940,64 @@ wrong password, a damaged database or a database nobody can unlock now
 also end with one notice and the plain ssh, instead of an error: through
 the shim, zzh never stops a connection the plain ssh could make.
 
-### When another program runs ssh
+### When another program runs ssh: the confirmation dialog
 
-What happens depends on whether the database is unlocked and whether the
-program has a terminal you can see:
+A program that runs `ssh` in the background — the git of an editor, a
+scheduled task, a sync tool — has no terminal you can see. Before giving
+it the keys and passwords stored in KeePass, zzh asks **you**, with a
+dialog:
 
-| Situation | What zzh does |
+```
+┌ zzh ──────────────────────────────────────────────────────────────┐
+│ git.exe (started by Code.exe) wants to connect to "github" with   │
+│ the keys and passwords stored in KeePass.                         │
+│                                                                   │
+│ Program: C:\Program Files\Git\cmd\git.exe                         │
+│                                                                   │
+│   [ Allow once ]   [ Allow for 15 minutes ]   [ Deny ]            │
+└───────────────────────────────────────────────────────────────────┘
+```
+
+- **Who is asking**: zzh walks up the chain of programs that led to the
+  connection, skipping zzh, ssh, scp and sftp themselves, and names the
+  first real program and the one that started it. The full path lets you
+  tell a genuine program from a look-alike in another folder.
+- **Allow once**: this connection only.
+- **Allow for 15 minutes**: that program may connect to **that host**
+  without asking again for the given time (`confirm.remember_for`). Another
+  host, or another program, is asked again. `zzh lock` forgets every such
+  authorization, together with the passwords.
+- **Deny**, closing the dialog, or no answer within **60 seconds**: the
+  KeePass data is not used; through the shim the plain ssh runs instead,
+  as `zzh <host>` the command fails.
+
+**When the database is locked**, the same dialog also has a field for the
+master password: one dialog unlocks and allows. The password is then kept
+by the daemon as if you had typed it in a terminal.
+
+When the dialog appears is set by `confirm.mode`:
+
+| `confirm.mode` | Asks |
 |---|---|
-| database unlocked (by `zzh unlock` or a previous command) | connects with the KeePass data, asking nothing |
-| locked, the program runs in a visible terminal (a script you started, git in a terminal) | asks the master password in that terminal, as above |
-| locked, no visible terminal (an editor's background git, a scheduled task, a service) | one notice in the program's log, then the plain ssh |
+| `background` (default) | only programs without a visible terminal; what you type yourself in a terminal is never asked |
+| `always` | every connection that uses KeePass data; in a terminal the question is asked there (`[y/N]`) |
+| `never` | nobody; background programs use KeePass data whenever the database is unlocked |
 
-To let background programs use your KeePass keys, unlock first:
-`zzh unlock` (or `ssh --zzh unlock`); the daemon keeps the database
-unlocked for the configured time.
+Connections that do not use KeePass data (hosts not in KeePass, without
+`--key`) never ask anything.
+
+The dialog is drawn by the system's own tools: a WinForms window through
+the Windows PowerShell on Windows, `osascript` on macOS, `zenity` or
+`kdialog` on Linux. It is never shown where nobody could see it: not in a
+Windows service (session 0), not in an ssh session into a Mac, not on Linux
+without a display or without zenity/kdialog. In those cases, with
+`confirm.mode background`, a program without a terminal **does not** get
+the KeePass data (through the shim it runs the plain ssh, with a notice);
+servers that run unattended jobs with an unlocked database can use
+`confirm.mode never`.
+
+`zzh doctor` shows the mode and whether the dialog is available in the
+current session.
 
 ### Removing the shims
 
@@ -1048,6 +1093,8 @@ zzh config unset lock.idle_timeout                                        # back
 | `output.color` | `auto` | colors on a terminal (`auto`, also off when `NO_COLOR` is set), `always` or `never`; pipes and files never get colors |
 | `output.stripes` | `true` | alternate background for table rows (turn off on light themes if it reads badly) |
 | `shim.enabled` | `true` | `false`: the ssh, scp and sftp shims run the real programs for you, as if zzh were not there |
+| `confirm.mode` | `background` | when a program must be confirmed before using KeePass data: `background` (no visible terminal), `always`, `never` |
+| `confirm.remember_for` | `15m` | how long "Allow for a while" lasts, per program and host |
 
 Durations are written as `30s`, `15m`, `8h`, `1h30m`.
 
@@ -1063,7 +1110,8 @@ Example:
   "lock": { "idle_timeout": "1h", "max_lifetime": "0s" },
   "ssh": { "extra_options": ["ServerAliveInterval=30"] },
   "output": { "color": "auto", "stripes": false },
-  "shim": { "enabled": true }
+  "shim": { "enabled": true },
+  "confirm": { "mode": "background", "remember_for": "30m" }
 }
 ```
 
@@ -1159,6 +1207,15 @@ What zzh protects, and how:
   PATH keeps its type (`REG_EXPAND_SZ`), so entries like `%SystemRoot%`
   keep working.
 
+- **Programs in the background** are confirmed by you before they use the
+  KeePass data (`confirm.mode`), in a dialog that names the program and its
+  path; authorizations are per program and host, limited in time, and
+  cleared by `zzh lock`. The dialog's texts reach the helper program
+  through its environment, not its command line, and the password comes
+  back through a private pipe. The confirmation protects from programs
+  acting behind your back, not from malware running as your user, which
+  could fake the program's name or click the dialog itself.
+
 What zzh does **not** protect against: code already running as your user
 can read process memory and reach your private endpoints, exactly as with
 ssh-agent, KeePassXC or any password manager. Lock the database
@@ -1190,6 +1247,9 @@ the bookmarked databases and the ssh client.
 | `ssh` does not go through zzh after installing the shims | The program was started before the installation and has the old PATH: restart it. Check with `where.exe ssh` / `command -v ssh` in a new terminal. In a repository with `core.sshCommand` git uses that setting instead. |
 | `ssh ls`: `Could not resolve hostname ls` | Through the shim `ssh` stays ssh: `ls` is a host name. Use `zzh ls`, or `ssh --zzh ls`. |
 | `zzh started itself … times as ssh` | The "real" ssh found in PATH is zzh again (a copy instead of a link, or `ssh.binary` pointing to a shim). Check with `zzh doctor` and `zzh config get ssh.binary`. |
+| `access denied in the zzh confirmation` | You pressed Deny, or nobody answered the dialog within 60 seconds. |
+| `a confirmation is required (confirm.mode) but there is no terminal or graphical session to ask it` | A program without a terminal, where no dialog can be shown (a service, a server without display). Run it where you can answer, or `zzh config set confirm.mode never` for unattended use. |
+| A background program asks every time | Choose *Allow for 15 minutes*, or set a longer `confirm.remember_for`; with `confirm.mode never` it is never asked. |
 | Strange characters like `←[1m` instead of colors | An old console without color support: `zzh config set output.color never`, or set `NO_COLOR`. |
 | Striped table rows hard to read | Light terminal theme: `zzh config set output.stripes false`. |
 
@@ -1210,6 +1270,9 @@ internal/core/        building blocks shared by the commands
   prompt/             terminal questions (hidden passwords, confirmations)
   session/            where the master password comes from; open and modify
   shim/               zzh started as ssh, scp or sftp; its own real path
+  caller/             which program asked for the connection (process tree)
+  gui/                the confirmation dialog, drawn by the system's tools
+  approval/           "Allow for a while" authorizations, per program and host
   sshcli/             ssh command line parsing, OpenSSH version detection
   sshkey/             key generation and import
   style/              meaningful colors on terminals (NO_COLOR, output.color)
