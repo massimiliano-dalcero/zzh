@@ -14,6 +14,7 @@ import (
 	"zzh/internal/core/config"
 	"zzh/internal/core/daemon"
 	"zzh/internal/core/prompt"
+	"zzh/internal/core/shim"
 	"zzh/internal/core/vault"
 )
 
@@ -259,9 +260,11 @@ func remember(cfg config.Config, path, password string) error {
 	if err != nil {
 		return err
 	}
-	executable, err := os.Executable()
+	// The daemon is started from the zzh file itself, never from a shim
+	// link: started as "ssh", it would read "daemon run" as a host name.
+	executable, err := shim.Executable()
 	if err != nil {
-		return fmt.Errorf("cannot determine the zzh executable path: %w", err)
+		return err
 	}
 	if err := client.EnsureRunning(executable); err != nil {
 		return err

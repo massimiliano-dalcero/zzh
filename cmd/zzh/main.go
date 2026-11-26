@@ -21,6 +21,7 @@ import (
 	"zzh/internal/core/daemon"
 	"zzh/internal/core/prompt"
 	"zzh/internal/core/session"
+	"zzh/internal/core/shim"
 	"zzh/internal/core/sshcli"
 	"zzh/internal/core/vault"
 	"zzh/internal/feature/addhost"
@@ -180,7 +181,18 @@ func main() {
 		os.Exit(runAskpass(os.Args[1]))
 	}
 
-	err := run(os.Args[1:])
+	// Started through a shim (a link named ssh, scp or sftp, D-055), zzh
+	// stands in for that program: no zzh subcommand is recognized, so that
+	// "ssh ls" still means the host "ls".
+	var err error
+	switch program := shim.InvokedAs(os.Args[0]); program {
+	case shim.ProgramSSH:
+		err = runAsSSH(os.Args[1:])
+	case shim.ProgramSCP, shim.ProgramSFTP:
+		err = runAsCopy(program, os.Args[1:])
+	default:
+		err = run(os.Args[1:])
+	}
 
 	// When ssh itself fails it has already printed its own message: zzh only
 	// propagates the exit code, so that scripts see the remote result.
@@ -253,20 +265,79 @@ func parseGlobalOptions(args []string) (globalOptions, []string, error) {
 }
 
 func runConnect(options globalOptions, args []string) error {
+	return connectHost(options, args, false)
+}
+
+// runAsSSH is zzh started as "ssh" through a shim. It connects like
+// "zzh <args>", with one overriding rule: in doubt, behave as the real ssh.
+// A system-wide shim runs for every user of the machine, root included, and
+// for every program that calls ssh, so it must never get in the way of
+// someone who does not use zzh or of a command zzh does not understand.
+func runAsSSH(args []string) error {
+	if err := shim.EnterNested(); err != nil {
+		return err
+	}
+	return connectHost(globalOptions{}, args, true)
+}
+
+// runAsCopy is zzh started as "scp" or "sftp" through a shim: the real
+// program runs with zzh as its ssh (see connect.RunCopy).
+func runAsCopy(program string, args []string) error {
+	executable, err := shim.Executable()
+	if err != nil {
+		return err
+	}
+	return connect.RunCopy(program, args, executable)
+}
+
+// plainSSH runs the real ssh with the arguments exactly as received: the
+// shim's answer to anything zzh cannot or should not handle.
+func plainSSH(args []string) error {
+	return connect.Run(config.Defaults().SSH.Binary, args, nil)
+}
+
+// connectHost connects to a host stored in KeePass, or runs the plain ssh
+// for other targets. asShim selects the shim rules (see runAsSSH): command
+// lines zzh does not understand (ssh -V, options unknown to zzh), users
+// without a zzh database and databases nobody can unlock now all go to the
+// plain ssh instead of failing, and unknown hosts are passed through
+// silently, whatever ssh.passthrough_unknown_hosts says.
+func connectHost(options globalOptions, args []string, asShim bool) error {
 	// The command line is validated before asking for the master password,
 	// so that a typo does not cost the user a password prompt.
 	invocation, err := sshcli.ParseInvocation(args)
 	if err != nil {
+		if asShim {
+			return plainSSH(args)
+		}
 		return fmt.Errorf("%w (see \"zzh help\")", err)
 	}
 
 	loaded, err := config.LoadDefault()
 	if err != nil {
+		if asShim {
+			fmt.Fprintf(os.Stderr, "zzh: %v; running plain ssh\n", err)
+			return plainSSH(args)
+		}
 		return err
+	}
+
+	// A user who never set up zzh has no database: plain ssh, without a
+	// word, as if the shim did not exist.
+	if asShim && len(loaded.Config.Databases) == 0 {
+		return connect.Run(loaded.Config.SSH.Binary, args, nil)
 	}
 
 	v, err := session.OpenVault(loaded.Config, options.database)
 	if err != nil {
+		// Locked and nobody to ask (a background program): the plain ssh
+		// may still succeed with the system keys. Other errors (a wrong
+		// password typed now, a damaged file) are reported, because the
+		// user is there and expects zzh to work.
+		if asShim && errors.Is(err, session.ErrLocked) {
+			fmt.Fprintf(os.Stderr, "zzh: %v; running plain ssh\n", err)
+			return connect.Run(loaded.Config.SSH.Binary, args, nil)
+		}
 		return err
 	}
 
@@ -289,10 +360,12 @@ func runConnect(options globalOptions, args []string) error {
 	// Not in KeePass: behave like ssh, with the arguments as typed and the
 	// system ssh configuration (D-030).
 	if !found {
-		if !loaded.Config.SSH.PassthroughUnknownHosts {
-			return fmt.Errorf("host %q is not in KeePass (neither a name nor an address)", invocation.Target)
+		if !asShim {
+			if !loaded.Config.SSH.PassthroughUnknownHosts {
+				return fmt.Errorf("host %q is not in KeePass (neither a name nor an address)", invocation.Target)
+			}
+			fmt.Fprintf(os.Stderr, "zzh: %q is not in KeePass, running plain ssh (save it with \"zzh add\")\n", invocation.Target)
 		}
-		fmt.Fprintf(os.Stderr, "zzh: %q is not in KeePass, running plain ssh (save it with \"zzh add\")\n", invocation.Target)
 		return connect.Passthrough(loaded.Config.SSH.Binary, invocation, args, chosenKey, invocation.KeyName)
 	}
 
@@ -312,10 +385,11 @@ func runConnect(options globalOptions, args []string) error {
 		fmt.Fprintf(os.Stderr, "zzh: the key associated with %q no longer exists in KeePass, connecting without it\n", host.Name)
 	}
 
-	// ssh will run this same executable as askpass program.
-	executable, err := os.Executable()
+	// ssh will run this same executable as askpass program; through a shim
+	// the link is resolved, so that the askpass process starts as "zzh".
+	executable, err := shim.Executable()
 	if err != nil {
-		return fmt.Errorf("cannot determine the zzh executable path: %w", err)
+		return err
 	}
 
 	return connect.Connect(connect.Request{

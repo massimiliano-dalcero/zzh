@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -16,26 +15,40 @@ import (
 // named pipe of the zzh agent.
 var posixRuntimeLibraries = []string{"msys-2.0.dll", "cygwin1.dll"}
 
-// ResolveBinary returns the path of the ssh client to run.
+// selfExecutable is the running zzh; a variable so that tests can pretend
+// that a file of theirs is zzh.
+var selfExecutable = os.Executable
+
+// ResolveBinary returns the path of the real program to run: the ssh client
+// (or scp, sftp when zzh stands in for them).
 //
 // An explicit path (anything containing a path separator) is used as given:
 // it is the user's choice. A bare name such as the default "ssh" is looked up
-// in PATH, but on Windows the copies belonging to an MSYS2 or Cygwin
-// environment are skipped, falling back to the Windows OpenSSH in
-// System32\OpenSSH.
+// in PATH with two rules:
 //
-// This matters because git for Windows runs core.sshCommand through its own
-// shell, which puts its MSYS folders first in PATH: without this rule, zzh
-// started by git would pick Git's ssh.exe, which cannot use the zzh agent,
-// and the server would refuse the login ("Permission denied (publickey)")
-// although the same command works from PowerShell (D-036).
+//   - zzh itself is skipped. With the shims of "zzh install --shim" (D-055)
+//     the first "ssh" in PATH is a link to zzh; picking it would make zzh
+//     start itself forever. os.SameFile follows links, so the shim is
+//     recognized whatever path it is reached through.
+//   - On Windows the copies belonging to an MSYS2 or Cygwin environment are
+//     skipped, falling back to the Windows OpenSSH in System32\OpenSSH. git
+//     for Windows runs core.sshCommand through its own shell, which puts its
+//     MSYS folders first in PATH: without this rule, zzh started by git would
+//     pick Git's ssh.exe, which cannot use the zzh agent, and the server
+//     would refuse the login ("Permission denied (publickey)") although the
+//     same command works from PowerShell (D-036).
+//
+// An explicit path pointing to a shim would make zzh start itself; that
+// case is stopped by shim.EnterNested with an explanation, not here.
 func ResolveBinary(binary string) (string, error) {
-	if strings.ContainsAny(binary, `/\`) || runtime.GOOS != "windows" {
-		return exec.LookPath(binary)
+	if strings.ContainsAny(binary, `/\`) {
+		return binary, nil
 	}
 
+	self := ownFile()
+	windows := runtime.GOOS == "windows"
 	name := binary
-	if !strings.HasSuffix(strings.ToLower(name), ".exe") {
+	if windows && !strings.HasSuffix(strings.ToLower(name), ".exe") {
 		name += ".exe"
 	}
 
@@ -44,21 +57,57 @@ func ResolveBinary(binary string) (string, error) {
 			continue
 		}
 		candidate := filepath.Join(dir, name)
-		if info, err := os.Stat(candidate); err != nil || info.IsDir() {
+		if !isProgram(candidate, windows) {
 			continue
 		}
-		if isPosixEmulationFolder(dir) {
+		if self != nil && isSame(candidate, self) {
+			continue
+		}
+		if windows && isPosixEmulationFolder(dir) {
 			continue
 		}
 		return candidate, nil
 	}
 
-	native := filepath.Join(os.Getenv("SystemRoot"), "System32", "OpenSSH", name)
-	if _, err := os.Stat(native); err == nil {
-		return native, nil
+	if windows {
+		native := filepath.Join(os.Getenv("SystemRoot"), "System32", "OpenSSH", name)
+		if _, err := os.Stat(native); err == nil {
+			return native, nil
+		}
+		return "", fmt.Errorf("no native %s found in PATH nor in %s: %w", name, filepath.Dir(native), errors.ErrUnsupported)
 	}
+	return "", fmt.Errorf("%s not found in PATH (zzh itself excluded)", name)
+}
 
-	return "", fmt.Errorf("no native %s found in PATH nor in %s: %w", name, filepath.Dir(native), errors.ErrUnsupported)
+// ownFile describes the running zzh file, or nil when it cannot be read; in
+// that case nothing is skipped, which is the behaviour before the shims.
+func ownFile() os.FileInfo {
+	path, err := selfExecutable()
+	if err != nil {
+		return nil
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil
+	}
+	return info
+}
+
+// isSame reports whether path is the same file as self, following links.
+func isSame(path string, self os.FileInfo) bool {
+	info, err := os.Stat(path)
+	return err == nil && os.SameFile(info, self)
+}
+
+// isProgram reports whether path is a file that can be run: on Unix the
+// execute permission is required, as exec.LookPath does; on Windows the
+// ".exe" name is enough.
+func isProgram(path string, windows bool) bool {
+	info, err := os.Stat(path)
+	if err != nil || info.IsDir() {
+		return false
+	}
+	return windows || info.Mode()&0o111 != 0
 }
 
 // isPosixEmulationFolder reports whether the programs in dir need the MSYS2

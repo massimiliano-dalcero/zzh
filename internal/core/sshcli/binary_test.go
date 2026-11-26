@@ -57,6 +57,89 @@ func TestResolveBinaryFallsBackToSystem32(t *testing.T) {
 	}
 }
 
+// programName is "ssh.exe" on Windows and "ssh" elsewhere.
+func programName() string {
+	if runtime.GOOS == "windows" {
+		return "ssh.exe"
+	}
+	return "ssh"
+}
+
+// makeProgramFolder creates a folder with an executable ssh for any OS.
+func makeProgramFolder(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, programName()), []byte("x"), 0o755); err != nil {
+		t.Fatalf("cannot create ssh: %v", err)
+	}
+	return dir
+}
+
+// pretendToBe makes ResolveBinary believe that path is the running zzh.
+func pretendToBe(t *testing.T, path string) {
+	t.Helper()
+	original := selfExecutable
+	selfExecutable = func() (string, error) { return path, nil }
+	t.Cleanup(func() { selfExecutable = original })
+}
+
+// With the shims installed, the first "ssh" in PATH is zzh itself: it must
+// be skipped, or zzh would start itself forever.
+func TestResolveBinarySkipsItself(t *testing.T) {
+	shimFolder := makeProgramFolder(t)
+	realFolder := makeProgramFolder(t)
+	pretendToBe(t, filepath.Join(shimFolder, programName()))
+	t.Setenv("PATH", strings.Join([]string{shimFolder, realFolder}, string(os.PathListSeparator)))
+
+	got, err := ResolveBinary("ssh")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != filepath.Join(realFolder, programName()) {
+		t.Fatalf("expected the real ssh after the shim, got %s", got)
+	}
+}
+
+// The shim is a link: it must be recognized through the link too.
+func TestResolveBinarySkipsItselfThroughLink(t *testing.T) {
+	zzhFolder := t.TempDir()
+	zzhFile := filepath.Join(zzhFolder, "zzh")
+	if err := os.WriteFile(zzhFile, []byte("x"), 0o755); err != nil {
+		t.Fatalf("cannot create zzh: %v", err)
+	}
+	shimFolder := t.TempDir()
+	if err := os.Symlink(zzhFile, filepath.Join(shimFolder, programName())); err != nil {
+		t.Skipf("symbolic links not available here: %v", err)
+	}
+	realFolder := makeProgramFolder(t)
+	pretendToBe(t, zzhFile)
+	t.Setenv("PATH", strings.Join([]string{shimFolder, realFolder}, string(os.PathListSeparator)))
+
+	got, err := ResolveBinary("ssh")
+	if err != nil || got != filepath.Join(realFolder, programName()) {
+		t.Fatalf("expected the real ssh after the linked shim, got %s (%v)", got, err)
+	}
+}
+
+// On Unix a file without execute permission is not a program, as for
+// exec.LookPath.
+func TestResolveBinarySkipsNonExecutable(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("execute permission does not exist on Windows")
+	}
+	notExecutable := t.TempDir()
+	if err := os.WriteFile(filepath.Join(notExecutable, "ssh"), []byte("x"), 0o644); err != nil {
+		t.Fatalf("cannot create file: %v", err)
+	}
+	realFolder := makeProgramFolder(t)
+	t.Setenv("PATH", strings.Join([]string{notExecutable, realFolder}, string(os.PathListSeparator)))
+
+	got, err := ResolveBinary("ssh")
+	if err != nil || got != filepath.Join(realFolder, "ssh") {
+		t.Fatalf("expected the executable ssh, got %s (%v)", got, err)
+	}
+}
+
 // A path written explicitly in the configuration is the user's choice, even
 // if it is an MSYS build.
 func TestResolveBinaryKeepsExplicitPath(t *testing.T) {
