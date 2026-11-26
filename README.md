@@ -10,10 +10,13 @@ out of the way.
 
 ```console
 $ zzh ls
-NAME      ALIASES        FOLDER  USER    ADDRESS          KEY     PASSWORD  TAGS
-bastion                  prod    jump    10.0.0.1:2222    laptop            prod
-web01     w1,front       prod    deploy  10.0.0.10        laptop  stored    prod,web
-github                           git     github.com       github
+┌─────────┬──────────┬────────┬────────┬───────────────┬────────┬──────────┬──────────┐
+│ NAME    │ ALIASES  │ FOLDER │ USER   │ ADDRESS       │ KEY    │ PASSWORD │ TAGS     │
+├─────────┼──────────┼────────┼────────┼───────────────┼────────┼──────────┼──────────┤
+│ bastion │          │ prod   │ jump   │ 10.0.0.1:2222 │ laptop │          │ prod     │
+│ web01   │ w1,front │ prod   │ deploy │ 10.0.0.10     │ laptop │ stored   │ prod,web │
+│ github  │          │        │ git    │ github.com    │ github │          │          │
+└─────────┴──────────┴────────┴────────┴───────────────┴────────┴──────────┴──────────┘
 
 $ zzh web01                     # interactive shell, key from KeePass
 $ zzh w1 -L 8080:localhost:80   # same host through an alias, with a tunnel
@@ -24,6 +27,8 @@ $ zzh web01 uptime              # remote command
   files: everything stays in the encrypted database.
 - Every classic `ssh` option keeps working (`-L`, `-R`, `-D`, `-J`, `-t`,
   `-v`, `-o` …), because the real `ssh` does the connection.
+- Optionally zzh can **take the place of `ssh`** for every program
+  (editors, scripts, git, scp): see [shims](#zzh-in-place-of-ssh-shims).
 - Works on Windows, Linux and macOS.
 
 ---
@@ -39,6 +44,7 @@ $ zzh web01 uptime              # remote command
 - [Connecting](#connecting)
 - [Managing hosts](#managing-hosts)
 - [Managing keys](#managing-keys)
+- [Output: tables, colors and --grep](#output-tables-colors-and---grep)
 - [The master password and the daemon](#the-master-password-and-the-daemon)
 - [Several databases](#several-databases)
 - [Using zzh with git](#using-zzh-with-git)
@@ -109,6 +115,10 @@ zzh puts all of it in one encrypted KeePass database:
   source of truth for the connection. Both can be re-enabled.
 - **Hosts not in KeePass** are handed to the plain `ssh` exactly as you
   typed them, so `zzh` can replace `ssh` for everything.
+- **Other programs** can go through zzh too: with the optional
+  [shims](#zzh-in-place-of-ssh-shims), a program that runs `ssh`, `scp` or
+  `sftp` actually runs zzh, which behaves as described here for hosts in
+  KeePass and as the plain ssh for everything else.
 
 ---
 
@@ -179,7 +189,8 @@ install:
 | macOS Intel / Apple Silicon | `zzh-darwin-amd64` / `zzh-darwin-arm64` |
 
 Rename it to `zzh` (`zzh.exe` on Windows) and install it with
-`zzh install` (see below). `SHA256SUMS.txt` in the release lets you verify the download:
+[`zzh install`](#installing-zzh-install). `SHA256SUMS.txt` in the release
+lets you verify the download:
 
 ```sh
 sha256sum -c SHA256SUMS.txt --ignore-missing            # Linux
@@ -193,6 +204,78 @@ shasum -a 256 -c SHA256SUMS.txt --ignore-missing        # macOS
 On Linux and macOS make it executable with `chmod +x zzh`. The binaries
 are not code-signed: Windows SmartScreen and macOS Gatekeeper may warn on
 the first run (on macOS: `xattr -d com.apple.quarantine zzh`).
+
+### Installing: zzh install
+
+zzh installs itself: run the downloaded (or built) binary with `install`.
+It copies itself to a fixed place and puts that place in your PATH.
+
+```sh
+./zzh install                  # for you only, no privileges needed
+sudo ./zzh install --system    # for every user of the machine
+```
+
+```powershell
+.\zzh.exe install              # for you only
+.\zzh.exe install --system     # for every user: from a terminal opened with "Run as administrator"
+```
+
+> In PowerShell a program in the current folder must be called as
+> `.\zzh.exe`; once installed, plain `zzh` works everywhere.
+
+| | for you (`zzh install`) | for everybody (`--system`) |
+|---|---|---|
+| Windows | `%LOCALAPPDATA%\Programs\zzh\zzh.exe`, folder added to your user PATH | `C:\Program Files\zzh\zzh.exe`, folder added to the system PATH |
+| Linux / macOS | `~/.local/bin/zzh` | `/usr/local/bin/zzh` (already in PATH) |
+
+- **PATH on Linux and macOS**: zzh does not edit shell profiles, because
+  which file is read depends on your shell and on how it starts. If
+  `~/.local/bin` is missing from your PATH, `install` prints the line to add
+  (to `~/.profile` for bash, `~/.zprofile` for zsh).
+- **PATH on Windows**: the change is written in the registry and announced
+  to running programs, but terminals and editors **already open keep the
+  old PATH**: close and reopen them.
+- **Configuration and databases** live in each user's profile:
+  `install` and `uninstall` never touch them.
+- Add `--shim` to also make `ssh`, `scp` and `sftp` run through zzh: see
+  [zzh in place of ssh](#zzh-in-place-of-ssh-shims).
+
+### Upgrading and uninstalling
+
+To **upgrade**, run `install` again from the new binary, with the same
+options used the first time (`--system`, `--shim`). The installed zzh is
+replaced; on Windows, where a running `.exe` cannot be overwritten, the old
+one is moved aside as `zzh.exe.old` and removed at the next upgrade.
+
+To **uninstall** (add `--system` for a system-wide installation):
+
+```sh
+zzh uninstall --shim          # remove only the shims, keep zzh
+zzh uninstall --shim --all    # remove the shims and zzh
+zzh uninstall --all           # remove zzh (refused while its shims are installed)
+```
+
+zzh is never removed while its shims are installed: `ssh` would point to a
+missing file and stop working. On Windows the running `zzh.exe` is deleted
+a moment after the command ends. Your configuration file and your
+databases are left where they are.
+
+### Checking the environment
+
+After installing:
+
+```console
+$ zzh doctor
+[ok  ] config: /home/max/.config/zzh/config.json not found, using defaults
+[FAIL] database: none bookmarked (use "zzh init <name> <path>" or "zzh db add <name> <path>")
+[ok  ] ssh: /usr/bin/ssh
+[ok  ] ssh version: OpenSSH 9.6
+[ok  ]   SSH_ASKPASS_REQUIRE=force (needs 8.4): passwords are supplied by zzh instead of being typed
+[ok  ]   KnownHostsCommand (needs 8.5): host keys are read from KeePass instead of known_hosts
+```
+
+On a terminal the marks are colored: `ok` green, `FAIL` red, with the
+commands to run highlighted.
 
 ### Building from source
 
@@ -208,56 +291,14 @@ $env:CGO_ENABLED = "0"; go build -trimpath -ldflags "-s -w" -o zzh.exe ./cmd/zzh
 ```
 
 `-trimpath -ldflags "-s -w"` produce a smaller, reproducible binary;
-`CGO_ENABLED=0` makes it fully static.
+`CGO_ENABLED=0` makes it fully static. Then install the result with
+`./zzh install` as above.
 
 The version is defined in one place, `releaseVersion` in
 `cmd/zzh/version.go`. A binary built from a git checkout also shows the
 commit it comes from (`zzh v0.9.1+4a0cc78`, `.dirty` with uncommitted
 changes); add `-buildvcs=false` to get exactly the release version, as the
 published binaries do.
-
-### Installing: zzh install
-
-zzh installs itself: run the downloaded or built binary with `install`.
-
-```sh
-./zzh install                  # for you only, no privileges
-sudo ./zzh install --system    # for every user of the machine
-```
-
-```powershell
-.\zzh.exe install             # for you only
-.\zzh.exe install --system    # for every user: from a terminal opened as administrator
-```
-
-| | for you (`zzh install`) | for everybody (`--system`) |
-|---|---|---|
-| Windows | `%LOCALAPPDATA%\Programs\zzh\zzh.exe`, added to your user PATH | `C:\Program Files\zzh\zzh.exe`, added to the system PATH |
-| Linux / macOS | `~/.local/bin/zzh` | `/usr/local/bin/zzh` |
-
-Running `install` again from a newer zzh upgrades the installed one. On
-Linux and macOS zzh does not edit shell profiles: if `~/.local/bin` is not
-in your PATH it prints the line to add. On Windows, terminals and editors
-already open keep the old PATH until they are restarted.
-
-> In PowerShell a program in the current folder must be called as
-> `.\zzh.exe`; once installed, plain `zzh` works everywhere.
-
-Configuration and databases live in each user's profile: `install` and
-`uninstall` never touch them. See also
-[zzh in place of ssh](#zzh-in-place-of-ssh-shims) for `--shim`.
-
-Then check the environment:
-
-```console
-$ zzh doctor
-[ok  ] config: /home/max/.config/zzh/config.json not found, using defaults
-[FAIL] database: none bookmarked (use "zzh init <name> <path>" or "zzh db add <name> <path>")
-[ok  ] ssh: /usr/bin/ssh
-[ok  ] ssh version: OpenSSH 9.6
-[ok  ]   SSH_ASKPASS_REQUIRE=force (needs 8.4): passwords are supplied by zzh instead of being typed
-[ok  ]   KnownHostsCommand (needs 8.5): host keys are read from KeePass instead of known_hosts
-```
 
 ---
 
@@ -449,21 +490,8 @@ zzh alias rm <alias>...
 zzh rm <host> [--yes]                          # to the recycle bin, after confirmation
 ```
 
-On a terminal `zzh ls` draws a table with colors: host names in bold, a
-stored login password as a highlighted **stored** (the password itself is
-never shown), tags in cyan, broken entries in red, and alternate rows on a
-slightly different background. With `--grep`, or whenever the output goes
-to a pipe or a file, it prints one line per host instead, fields separated
-by a tab, `-` for empty fields, no header and no colors:
-
-```sh
-zzh ls | grep stored              # hosts with a stored password
-zzh ls --grep | cut -f1,5         # name and address
-```
-
-Every listing works the same way: `zzh key ls` (unused keys flagged as
-`unused`), `zzh db ls` (default marked, missing files in red) and
-`zzh status` all draw a table on a terminal and accept `--grep`.
+`zzh ls` draws a table on a terminal and prints tab-separated lines for
+`grep` in a pipe: see [Output](#output-tables-colors-and---grep).
 
 Examples:
 
@@ -514,6 +542,52 @@ zzh key pub laptop | ssh deploy@10.0.0.10 'cat >> ~/.ssh/authorized_keys'
 
 ---
 
+## Output: tables, colors and --grep
+
+zzh adapts its output to where it goes.
+
+**On a terminal**, listings are tables with borders, a bold header and
+alternate rows on a slightly different background, and colors carry a
+meaning:
+
+| Color | Meaning | Examples |
+|---|---|---|
+| red | errors, failed checks, broken entries | `zzh:` before an error, `[FAIL]`, `INVALID`, `MISSING KEY`, `MISSING` |
+| yellow | warnings, things to notice | `zzh:` before a notice, `unused` keys |
+| green | success, passed checks | `[ok]`, the default database |
+| cyan | commands to type, tags | `"zzh unlock"` in a message, host tags |
+| **magenta** | a stored login password | **`stored`** in `zzh ls` (the password itself is never shown) |
+| bold | names | hosts, keys, databases, table headers |
+| dim | secondary details | folders, paths, fingerprints, borders |
+
+**In a pipe or a file**, or with `--grep`, listings become one line per
+row, fields separated by a tab, `-` for empty fields (so that `awk` and
+`cut` never shift columns), no header and no colors:
+
+```sh
+zzh ls | grep stored                 # hosts with a stored password
+zzh ls --grep | cut -f1,5            # name and address
+zzh key ls | grep unused             # keys no host uses
+```
+
+| Listing | Columns | Highlights |
+|---|---|---|
+| `zzh ls [--tag t]... [--grep]` | name, aliases, folder, user, address, key, password, tags | `stored`, broken entries |
+| `zzh key ls [--grep]` | name, type, fingerprint, hosts | `unused` |
+| `zzh db ls [--grep]` | default (`*`), name, path, status | default, `MISSING` files |
+| `zzh status [--grep]` | database, path, unlocked at, locks in, kept | unreadable file |
+
+Colors are **never** written to pipes or files, so scripts and git always
+get plain text, nor on output meant to be copied (`zzh key pub`). They can
+be turned off with the standard `NO_COLOR` environment variable, or with
+`zzh config set output.color never` (`always` forces them, `auto` is the
+default). On a light terminal theme the striped rows may read badly:
+`zzh config set output.stripes false`. On Windows the classic console is
+switched to color mode automatically; if that is not possible, zzh prints
+plain text.
+
+---
+
 ## The master password and the daemon
 
 ### Where the password comes from
@@ -537,6 +611,10 @@ database or `ZZH_PASSWORD`; otherwise they stop with a message asking for
 window or is a pseudo console (Windows Terminal, the VS Code terminal, an
 ssh session); a hidden console never receives questions, so a background
 program is never left waiting for an answer nobody can give.
+
+Through the [ssh shim](#zzh-in-place-of-ssh-shims) the rules differ in one
+point: a database that is not unlocked (Enter pressed at the question,
+wrong password, nobody to ask) leads to the plain ssh, not to an error.
 
 ### The daemon
 
@@ -730,76 +808,166 @@ $env:GIT_SSH_COMMAND = "C:/path/to/zzh.exe"; git fetch; Remove-Item Env:GIT_SSH_
 
 ## zzh in place of ssh (shims)
 
-With `--shim`, `zzh install` also creates links named `ssh`, `scp` and
-`sftp` that point to zzh, placed before the real OpenSSH in PATH. Every
-program that runs `ssh` — you in a terminal, scripts, editors, Ansible —
-then goes through zzh without being configured:
+### What a shim is
+
+Typing `zzh web01` works for you, but other programs know nothing about
+zzh: an editor, a deployment script, Ansible, `scp`, git all run `ssh`. A
+**shim** is a stand-in placed where those programs look for `ssh`: a file
+named `ssh` (`ssh.exe` on Windows) that is actually a link to zzh, put in a
+folder that comes **before** the real OpenSSH in PATH. Every program that
+runs `ssh` then runs zzh, without being configured, and zzh hands the
+connection to the real ssh.
+
+zzh installs three shims: `ssh`, `scp` and `sftp`.
+
+### How it works
+
+```
+ program runs "ssh web01 uptime"
+   │
+   ├─ the system finds the first "ssh" in PATH: the shim, a link to zzh
+   ├─ zzh sees it was started as "ssh" and behaves as ssh:
+   │     web01 is in KeePass  → address, user, port, options, key and
+   │                            password come from KeePass, as "zzh web01"
+   │     anything else        → the real ssh, arguments unchanged, silently
+   └─ zzh finds the real ssh further down PATH (skipping itself) and runs it
+```
+
+- **The name decides**: zzh checks the name it was started with. As `ssh`
+  it reads the command line exactly as ssh does, and zzh's own subcommands
+  are not recognized: `ssh ls` is the host `ls`, as it always was.
+- **Invisible when it has nothing to do**: unknown hosts, `ssh -V`, users
+  who never set up zzh (with `--system` the shim serves every user of the
+  machine, root included) all get the real ssh with no message at all.
+- **scp and sftp** do not look for ssh in PATH (the Windows ones run the
+  `ssh.exe` of their own folder), so their shims run the real `scp` or
+  `sftp` with `-S <zzh>`: the copy is done by OpenSSH, the connection by
+  zzh. A `-S` you pass yourself is respected.
+- **Links, not copies**: the shims are symbolic links, so after an upgrade
+  they run the new zzh at once.
+- **Loops are impossible**: zzh never picks itself as "the real ssh", and a
+  counter stops it if a copy of zzh is found in PATH by mistake.
+
+### Installing the shims
 
 ```sh
-sudo zzh install --system --shim     # Linux / macOS (per user: zzh install --shim)
+zzh install --shim                    # Linux / macOS, for you
+sudo zzh install --system --shim      # Linux / macOS, for every user
 ```
 
 ```powershell
-zzh install --system --shim          # Windows, administrator terminal
+zzh install --system --shim           # Windows, from a terminal opened as administrator
 ```
 
-What zzh does when it is started as `ssh`:
+| | Where the shims go | How they come first |
+|---|---|---|
+| Linux / macOS | `ssh`, `scp`, `sftp` next to zzh, in `~/.local/bin` or `/usr/local/bin` | `/usr/local/bin` already comes before `/usr/bin`; for `~/.local/bin` zzh tells you if your PATH needs fixing |
+| Windows | `C:\Program Files\zzh\shim\ssh.exe`, `scp.exe`, `sftp.exe` | the folder is inserted in the system PATH right before `C:\Windows\System32\OpenSSH`; the system variable `GIT_SSH` is set to the ssh shim |
 
-- a host stored in KeePass (by name, alias or address) gets its address,
-  user, port, options, key and password from KeePass, as with `zzh <name>`;
-- anything else runs the real ssh **unchanged and silently**: unknown
-  hosts, `ssh -V`, users who never set up zzh (with `--system` the shim
-  serves every user of the machine, root included), and a database that
-  is not unlocked: at the password question press Enter to skip (the
-  question says `[Enter: plain ssh]`); a wrong password, a damaged file or
-  a background program with nobody to ask also end with one notice and the
-  plain ssh;
-- zzh subcommands are not recognized: `ssh ls` is the host `ls`. To reach
-  zzh itself through the shim, start with `--zzh` (ssh has no long
-  options, so it can never clash): `ssh --zzh ls` is `zzh ls`,
-  `ssh --zzh --db work key ls` is `zzh --db work key ls`.
+On **Windows the shims need `--system`**. Windows builds the PATH of every
+program as *system PATH + user PATH*, and the system part already contains
+`System32\OpenSSH`: a shim in a user folder would always come second.
+`zzh install --shim` without `--system` therefore stops and explains this.
 
-To skip zzh and run the real ssh at once, without opening the database:
+**Git for Windows** puts its own folders first in PATH and would run its own
+`ssh.exe`; `GIT_SSH` makes it use the shim instead. A `GIT_SSH` you already
+set to something else is left alone. Note that git gives `core.sshCommand`
+priority over `GIT_SSH`: a repository configured with
+`core.sshCommand` keeps using what it says.
+
+Programs started **before** the installation keep the old PATH: restart
+them (terminals, editors, Windows Terminal).
+
+zzh never replaces a file that is not a link to zzh: if an `ssh` you put
+there yourself already exists where a shim should go, the installation
+stops before changing anything and tells you.
+
+Check that it works, in a **new** terminal:
+
+```sh
+where.exe ssh        # Windows: the shim must be listed first
+command -v ssh       # Linux / macOS
+ssh -G web01         # a KeePass host: prints the configuration taken from KeePass
+```
+
+### Using it, and its options
+
+Use `ssh`, `scp` and `sftp` as usual; KeePass hosts just work:
+
+```sh
+ssh web01                          # key and password from KeePass
+ssh -L 8080:localhost:80 w1        # aliases and every ssh option
+scp backup.tar web01:/tmp/         # copies through zzh too
+```
+
+Two prefixes, valid only as the **first** argument of `ssh` (they can never
+collide with ssh: it has no long options, and a lone `-` could only be a
+host named `-`):
+
+| You type | It runs |
+|---|---|
+| `ssh --zzh <zzh arguments>` | zzh itself: `ssh --zzh ls` is `zzh ls`, `ssh --zzh --db work key ls` is `zzh --db work key ls` |
+| `ssh - <ssh arguments>` | the real ssh at once, without zzh: `ssh - web01` |
+
+Turning the shims off, without uninstalling them; zzh then runs the real
+program at once, without opening the database and without messages:
 
 | Scope | How |
 |---|---|
-| one command | `ssh - web01 …`: a lone `-` as first argument is removed and the rest goes to the real ssh (as first argument it could only be a host named `-`) |
-| a terminal session or a script, and every program it starts | `ZZH_SHIM=off` (also `0`, `false`, `no`); covers scp and sftp too |
-| always, for your user | `zzh config set shim.enabled false` (useful with `--system`, where each user can opt out) |
+| one command | `ssh - …` (above) |
+| a terminal session or a script, and every program it starts | `ZZH_SHIM=off` (also `0`, `false`, `no`), for ssh, scp and sftp |
+| always, for your user | `zzh config set shim.enabled false` (with `--system`, each user can opt out alone) |
 
-Started as `scp` or `sftp`, zzh runs the real program with `-S <zzh>`, so
-the copy is done by OpenSSH and the connection by zzh. This is needed
-because scp and sftp do not look for ssh in PATH (the Windows ones run the
-`ssh.exe` of their own folder). A `-S` you pass yourself is respected.
-
-The shims are symbolic links, so they always run the installed zzh, also
-after an upgrade. zzh finds the real ssh by skipping itself in PATH.
-
-| | Shims | How they come first |
-|---|---|---|
-| Linux / macOS | `ssh`, `scp`, `sftp` next to zzh (`/usr/local/bin` or `~/.local/bin`) | `/usr/local/bin` already comes before `/usr/bin`; for `~/.local/bin` zzh tells you if your PATH needs fixing |
-| Windows | `C:\Program Files\zzh\shim\{ssh,scp,sftp}.exe` | the folder is inserted in the system PATH right before `System32\OpenSSH`; `GIT_SSH` is set to the ssh shim |
-
-On Windows the shims need `--system`: the user PATH is always appended
-after the system PATH, which already contains `System32\OpenSSH`, so a
-shim in a user folder would never be found first. Git for Windows puts its
-own folders first and would run its own ssh, hence `GIT_SSH` (left alone if
-you already set it to something else).
-
-What does not go through the shims: programs that run ssh by its full
-path, and programs started before the installation (restart them).
-
-To remove them:
-
-```sh
-zzh uninstall [--system] --shim          # remove the shims, keep zzh
-zzh uninstall [--system] --shim --all    # remove the shims and zzh
+```powershell
+$env:ZZH_SHIM = "off"     # PowerShell, this session
 ```
 
-zzh never replaces or deletes a file that is not a link to zzh: if an
-`ssh` you installed yourself sits where a shim should go, the installation
-stops and tells you. zzh itself cannot be removed while its shims are
-installed, because `ssh` would then point to a missing file.
+```sh
+ZZH_SHIM=off ./deploy.sh  # a script that must use the plain ssh
+```
+
+**The master password through the shim.** When the database is locked and
+there is a terminal, zzh asks for the master password, and the question
+offers a way out:
+
+```
+KeePass password for "personal" (/home/max/vault/ssh.kdbx) [Enter: plain ssh]:
+```
+
+Pressing Enter without typing skips zzh: the real ssh runs at once. A
+wrong password, a damaged database or a database nobody can unlock now
+also end with one notice and the plain ssh, instead of an error: through
+the shim, zzh never stops a connection the plain ssh could make.
+
+### When another program runs ssh
+
+What happens depends on whether the database is unlocked and whether the
+program has a terminal you can see:
+
+| Situation | What zzh does |
+|---|---|
+| database unlocked (by `zzh unlock` or a previous command) | connects with the KeePass data, asking nothing |
+| locked, the program runs in a visible terminal (a script you started, git in a terminal) | asks the master password in that terminal, as above |
+| locked, no visible terminal (an editor's background git, a scheduled task, a service) | one notice in the program's log, then the plain ssh |
+
+To let background programs use your KeePass keys, unlock first:
+`zzh unlock` (or `ssh --zzh unlock`); the daemon keeps the database
+unlocked for the configured time.
+
+### Removing the shims
+
+```sh
+zzh uninstall --shim                 # for you
+zzh uninstall --system --shim        # system-wide (sudo / administrator)
+zzh uninstall --system --shim --all  # the shims and zzh itself
+```
+
+On Windows this also removes the shim folder from the system PATH and
+`GIT_SSH` (only if it still points to the shim). zzh only removes links to
+zzh, never other files, and cannot be removed while its shims are
+installed.
+
+---
 
 ## Exporting to ~/.ssh for the plain ssh
 
@@ -893,12 +1061,25 @@ Example:
   },
   "default_database": "personal",
   "lock": { "idle_timeout": "1h", "max_lifetime": "0s" },
-  "ssh": { "extra_options": ["ServerAliveInterval=30"] }
+  "ssh": { "extra_options": ["ServerAliveInterval=30"] },
+  "output": { "color": "auto", "stripes": false },
+  "shim": { "enabled": true }
 }
 ```
 
-Other environment variables: `ZZH_PASSWORD` (master password, see above),
-`ZZH_DAEMON_DIR` (where the daemon publishes its endpoint).
+Environment variables:
+
+| Variable | Effect |
+|---|---|
+| `ZZH_CONFIG` | use another configuration file |
+| `ZZH_PASSWORD` | master password, see [ZZH_PASSWORD](#zzh_password) |
+| `ZZH_SHIM` | `off` (also `0`, `false`, `no`): the shims run the real ssh, scp, sftp |
+| `NO_COLOR` | any value: no colors ([no-color.org](https://no-color.org)) |
+| `ZZH_DAEMON_DIR` | where the daemon publishes its endpoint (tests, special setups) |
+
+`ZZH_AS_SSH` and `ZZH_SHIM_DEPTH` are used by zzh internally between its
+own processes (scp and sftp through the shims, loop protection): do not
+set them.
 
 ---
 
@@ -907,22 +1088,34 @@ Other environment variables: `ZZH_PASSWORD` (master password, see above),
 | Command | |
 |---|---|
 | `zzh <target> [--key k] [ssh options] [command]` | connect (name, alias, address; otherwise plain ssh); `--key` picks a KeePass key for this connection |
-| `zzh ls [--tag t]... [--grep]` | list hosts (`--grep`: one tab-separated line per host) |
+| `zzh ls [--tag t]... [--grep]` | list hosts |
 | `zzh add …` / `zzh edit …` / `zzh rm <host>` | create, change, remove hosts |
 | `zzh alias add <host> <alias>...` / `zzh alias rm <alias>...` | host aliases |
-| `zzh key gen\|import\|ls\|pub\|use\|rm …` | keys (`key ls --grep`) |
+| `zzh key gen\|import\|pub\|use\|rm …` | keys |
+| `zzh key ls [--grep]` | list keys and the hosts using them |
 | `zzh sync out [--dir path] [--dry-run]` | export to `~/.ssh` |
-| `zzh unlock` / `zzh lock` / `zzh status` / `zzh daemon stop` | master password and daemon |
+| `zzh unlock` / `zzh lock` / `zzh daemon stop` | master password and daemon |
+| `zzh status [--grep]` | unlocked databases and when they lock |
 | `zzh init <name> <path>` | create a database |
-| `zzh db ls\|add\|rm\|default …` | bookmarked databases |
+| `zzh db add\|rm\|default …` | bookmarked databases |
+| `zzh db ls [--grep]` | list bookmarked databases |
 | `zzh config path\|show\|init\|get\|set\|unset …` | configuration |
 | `zzh install [--system] [--shim]` | install or upgrade zzh; `--shim`: ssh, scp and sftp run through zzh |
-| `zzh uninstall [--system] --shim [--all]` | remove the shims (`--all`: and zzh) |
+| `zzh uninstall [--system] --shim [--all]` / `zzh uninstall [--system] --all` | remove the shims and/or zzh |
 | `zzh doctor` | check ssh, configuration and databases |
 | `zzh version` / `zzh help` | |
 
 `--db <name>`, right after `zzh`, selects a database for the commands that
-use one. `zzh help` shows every option.
+use one. `--grep` prints one tab-separated line per row instead of a table
+(automatic in a pipe). `zzh help` shows every option.
+
+With the shims installed:
+
+| Command | |
+|---|---|
+| `ssh`, `scp`, `sftp` … | as usual; KeePass hosts get their data from KeePass |
+| `ssh --zzh <zzh arguments>` | run zzh (`ssh --zzh ls`) |
+| `ssh - <ssh arguments>` | run the real ssh, skipping zzh |
 
 ---
 
@@ -955,6 +1148,17 @@ What zzh protects, and how:
   timeouts. The copy it hands to commands is re-encrypted with a random
   256-bit one-time key and never written to disk.
 
+- **Questions only where you can see them**: passwords and confirmations
+  are asked on the terminal you are using (also when git redirects zzh's
+  input and output), never on a hidden console, and never read from a pipe.
+- **The shims** change what `ssh` means for every program, and with
+  `--system` for every user of the machine: they only ever add KeePass data
+  for hosts you stored; for everything else, and for users without zzh,
+  the real ssh runs unchanged. `install` never replaces, and `uninstall`
+  never deletes, a file that is not a link to zzh. On Windows the registry
+  PATH keeps its type (`REG_EXPAND_SZ`), so entries like `%SystemRoot%`
+  keep working.
+
 What zzh does **not** protect against: code already running as your user
 can read process memory and reach your private endpoints, exactly as with
 ssh-agent, KeePassXC or any password manager. Lock the database
@@ -978,8 +1182,16 @@ the bookmarked databases and the ssh client.
 | `... is used by more than one entry` | Two entries share a name or an alias (possibly created in KeePassXC): rename one. |
 | `the database file was modified by another program` | Someone kept saving the file while zzh was writing; run the command again. |
 | ssh asks for a password although a key is set | The public key is not in the server's `authorized_keys` (`zzh key pub <key>`), or the server refuses it. |
-| `zzh` "not recognized" in PowerShell | Use `.\zzh.exe` in the current folder, or put zzh in your `PATH`. |
+| `zzh` "not recognized" in PowerShell | Use `.\zzh.exe` in the current folder, or install it with `.\zzh.exe install` and open a new terminal. |
 | The daemon keeps running | It stops by itself when nothing is unlocked; `zzh daemon stop` stops it now. |
+| `--system needs administrator rights` / `needs root` | Run it from a terminal opened with *Run as administrator* (Windows) or with `sudo`. |
+| `on Windows the ssh shim can only be installed with --system` | Per-user shims cannot come before the system OpenSSH on Windows: use `zzh install --system --shim`. |
+| `cannot install the shims: … is not a link to zzh` | A program of yours already sits where a shim goes; zzh does not replace it. Move it, or keep it and do without the shims. |
+| `ssh` does not go through zzh after installing the shims | The program was started before the installation and has the old PATH: restart it. Check with `where.exe ssh` / `command -v ssh` in a new terminal. In a repository with `core.sshCommand` git uses that setting instead. |
+| `ssh ls`: `Could not resolve hostname ls` | Through the shim `ssh` stays ssh: `ls` is a host name. Use `zzh ls`, or `ssh --zzh ls`. |
+| `zzh started itself … times as ssh` | The "real" ssh found in PATH is zzh again (a copy instead of a link, or `ssh.binary` pointing to a shim). Check with `zzh doctor` and `zzh config get ssh.binary`. |
+| Strange characters like `←[1m` instead of colors | An old console without color support: `zzh config set output.color never`, or set `NO_COLOR`. |
+| Striped table rows hard to read | Light terminal theme: `zzh config set output.stripes false`. |
 
 ---
 
@@ -1026,8 +1238,9 @@ OpenSSH client is installed.
 Dependencies: [gokeepasslib](https://github.com/tobischo/gokeepasslib)
 (KDBX), [golang.org/x/crypto](https://pkg.go.dev/golang.org/x/crypto)
 (SSH keys and agent), [golang.org/x/term](https://pkg.go.dev/golang.org/x/term)
-(terminal), [go-winio](https://github.com/microsoft/go-winio) (Windows
-named pipes).
+(terminal), [golang.org/x/sys](https://pkg.go.dev/golang.org/x/sys)
+(Windows registry, console modes, elevation check),
+[go-winio](https://github.com/microsoft/go-winio) (Windows named pipes).
 
 ---
 
