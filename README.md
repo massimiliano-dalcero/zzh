@@ -310,7 +310,8 @@ published binaries do.
 ## Quick start
 
 ```sh
-# 1. Create a database (on an existing file, zzh init offers to use it as zzh db add does)
+# 1. Create a database; given an existing file, zzh init asks whether to
+#    use it and adds the zzh groups to it (see "Several databases")
 zzh init personal ~/vault/ssh.kdbx
 
 # 2. Create a key pair inside KeePass and print its public key
@@ -348,9 +349,11 @@ Root
         └── laptop
 ```
 
-`zzh init` creates this layout. For an existing database, `zzh db add`
-creates it when the database has no `SSH` group, next to the groups already
-there (see [Several databases](#several-databases)).
+`zzh init` creates this layout in a new database. An existing database —
+added with `zzh db add`, or given to `zzh init` and confirmed — gets it
+when it has no `SSH` group, next to the groups already there; if it has an
+`SSH` group zzh did not create, zzh stops and leaves it alone (see
+[Several databases](#several-databases)).
 
 ### Host entries
 
@@ -393,7 +396,8 @@ You can keep the database open in KeePassXC while using zzh:
   KeePass history, so it can be undone from KeePassXC;
 - removed entries go to the KeePass recycle bin when the database uses one
   (KeePassXC: *Database settings → General → Use recycle bin*; `zzh init`
-  enables it).
+  enables it in the databases it creates, and leaves the setting of an
+  existing database as it is).
 
 ---
 
@@ -710,7 +714,7 @@ read -rs ZZH_PASSWORD && export ZZH_PASSWORD
 Databases are bookmarked by name in the configuration file.
 
 ```sh
-zzh init work ~/work/servers.kdbx      # create and bookmark
+zzh init work ~/work/servers.kdbx      # create and bookmark (an existing file: asks to use it)
 zzh db add personal ~/vault/ssh.kdbx   # bookmark an existing file (creates the zzh groups if missing)
 zzh db ls                              # * marks the default
 zzh db default work
@@ -723,11 +727,12 @@ zzh --db personal web01
 `--db` must come right after `zzh`. The first bookmark becomes the default;
 with a single bookmark and no default, that one is used.
 
-`zzh db add` opens the database (so it asks the master password, and a
+`zzh db add` — and `zzh init` given an existing file, once you confirm —
+opens the database (so it asks the master password of that file, and a
 wrong password or a file that is not a KeePass database is reported at
 once) and checks the groups zzh works in:
 
-| The database has | `zzh db add` |
+| The database has | What happens |
 |---|---|
 | no `SSH` group (e.g. your existing password database) | creates `SSH`, `SSH/Hosts` and `SSH/Keys` next to your groups, with the usual safe write and `.bak` backup, then bookmarks it |
 | `SSH` with `Hosts` and `Keys` | bookmarks it; the file is not rewritten |
@@ -1177,8 +1182,9 @@ set them.
 | `zzh sync out [--dir path] [--dry-run]` | export to `~/.ssh` |
 | `zzh unlock` / `zzh lock` / `zzh daemon stop` | master password and daemon |
 | `zzh status [--grep]` | unlocked databases and when they lock |
-| `zzh init <name> <path>` | create a database |
-| `zzh db add\|rm\|default …` | bookmarked databases |
+| `zzh init <name> <path>` | create a database; an existing file is used, after a confirmation, as `zzh db add` does |
+| `zzh db add <name> <path>` | bookmark an existing database, creating the zzh groups if it has no `SSH` group |
+| `zzh db rm\|default …` | forget a bookmark, choose the default |
 | `zzh db ls [--grep]` | list bookmarked databases |
 | `zzh config path\|show\|init\|get\|set\|unset …` | configuration |
 | `zzh install [--system] [--shim]` | install or upgrade zzh; `--shim`: ssh, scp and sftp run through zzh |
@@ -1282,7 +1288,7 @@ the bookmarked databases and the ssh client.
 | `ssh` does not go through zzh after installing the shims | The program was started before the installation and has the old PATH: restart it. Check with `where.exe ssh` / `command -v ssh` in a new terminal. In a repository with `core.sshCommand` git uses that setting instead. |
 | `ssh ls`: `Could not resolve hostname ls` | Through the shim `ssh` stays ssh: `ls` is a host name. Use `zzh ls`, or `ssh --zzh ls`. |
 | `zzh started itself … times as ssh` | The "real" ssh found in PATH is zzh again (a copy instead of a link, or `ssh.binary` pointing to a shim). Check with `zzh doctor` and `zzh config get ssh.binary`. |
-| `the database already has a group "SSH" without the "Hosts" and "Keys" groups` | `zzh db add` found an `SSH` group zzh did not create. Add `Hosts` and `Keys` inside it in KeePassXC, or `zzh config set root_group <other>` and add the database again. |
+| `the database already has a group "SSH" without the "Hosts" and "Keys" groups` | `zzh db add` (or `zzh init` on an existing file) found an `SSH` group zzh did not create; nothing was changed or bookmarked. Add `Hosts` and `Keys` inside it in KeePassXC, or `zzh config set root_group <other>` and add the database again. |
 | `access denied in the zzh confirmation` | You pressed Deny, or nobody answered the dialog within 60 seconds. |
 | `a confirmation is required (confirm.mode) but there is no terminal or graphical session to ask it` | A program without a terminal, where no dialog can be shown (a service, a server without display). Run it where you can answer, or `zzh config set confirm.mode never` for unattended use. |
 | A background program asks every time | Choose *Allow for 15 minutes*, or set a longer `confirm.remember_for`; with `confirm.mode never` it is never asked. |
