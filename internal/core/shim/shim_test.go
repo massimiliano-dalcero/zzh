@@ -38,6 +38,17 @@ func TestInvokedAsFromEnvironment(t *testing.T) {
 	}
 }
 
+func TestDisabledByEnvironment(t *testing.T) {
+	for value, disabled := range map[string]bool{
+		"": false, "off": true, "OFF": true, "0": true, "false": true, "no": true, "on": false, "1": false,
+	} {
+		t.Setenv(EnvShim, value)
+		if got := DisabledByEnvironment(); got != disabled {
+			t.Errorf("%s=%q: disabled = %v, expected %v", EnvShim, value, got, disabled)
+		}
+	}
+}
+
 func TestEnterNestedStopsLoops(t *testing.T) {
 	t.Setenv(EnvDepth, "")
 

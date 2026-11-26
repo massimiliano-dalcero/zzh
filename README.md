@@ -759,6 +759,14 @@ What zzh does when it is started as `ssh`:
   options, so it can never clash): `ssh --zzh ls` is `zzh ls`,
   `ssh --zzh --db work key ls` is `zzh --db work key ls`.
 
+To skip zzh and run the real ssh at once, without opening the database:
+
+| Scope | How |
+|---|---|
+| one command | `ssh - web01 …`: a lone `-` as first argument is removed and the rest goes to the real ssh (as first argument it could only be a host named `-`) |
+| a terminal session or a script, and every program it starts | `ZZH_SHIM=off` (also `0`, `false`, `no`); covers scp and sftp too |
+| always, for your user | `zzh config set shim.enabled false` (useful with `--system`, where each user can opt out) |
+
 Started as `scp` or `sftp`, zzh runs the real program with `-S <zzh>`, so
 the copy is done by OpenSSH and the connection by zzh. This is needed
 because scp and sftp do not look for ssh in PATH (the Windows ones run the
@@ -870,6 +878,7 @@ zzh config unset lock.idle_timeout                                        # back
 | `keys.default_type` | `ed25519` | type for `zzh key gen` |
 | `keys.rsa_bits` | `4096` | RSA size for `zzh key gen --type rsa` |
 | `output.color` | `auto` | colors on a terminal (`auto`, also off when `NO_COLOR` is set), `always` or `never`; pipes and files never get colors |
+| `shim.enabled` | `true` | `false`: the ssh, scp and sftp shims run the real programs for you, as if zzh were not there |
 | `output.stripes` | `true` | alternate background for table rows (turn off on light themes if it reads badly) |
 
 Durations are written as `30s`, `15m`, `8h`, `1h30m`.

@@ -143,6 +143,25 @@ func TestIntegrationShimSSH(t *testing.T) {
 		t.Errorf("wrong password: expected a notice and the plain ssh, got:\n%s", output)
 	}
 
+	// The three bypasses (D-060) run the real ssh at once: the stored host
+	// is then just a name, with no data from KeePass and no word from zzh.
+	disabled := cfg
+	disabled.Shim.Enabled = false
+	bypasses := map[string]struct {
+		env  []string
+		args []string
+	}{
+		"ssh - <args>":       {withDatabase, []string{"-", "-G", "stored"}},
+		"ZZH_SHIM=off":       {append(withDatabase, "ZZH_SHIM=off"), []string{"-G", "stored"}},
+		"shim.enabled false": {append(env, "ZZH_CONFIG="+writeConfig(t, disabled)), []string{"-G", "stored"}},
+	}
+	for name, bypass := range bypasses {
+		output := runLink(t, shimFolder, "ssh", bypass.env, bypass.args...)
+		if !strings.Contains(output, "hostname stored") || strings.Contains(output, "192.0.2.20") || strings.Contains(output, "zzh") {
+			t.Errorf("%s: expected the plain ssh, got:\n%s", name, output)
+		}
+	}
+
 	// A user who never set up zzh: plain ssh, not a word from zzh.
 	withoutDatabase := append(env, "ZZH_CONFIG="+writeConfig(t, config.Defaults()))
 	output = runLink(t, shimFolder, "ssh", withoutDatabase, "-G", "stored")
@@ -167,5 +186,12 @@ func TestIntegrationShimSCP(t *testing.T) {
 	}
 	if !strings.Contains(output, "192.0.2.1") || !strings.Contains(strings.ToLower(output), "timed out") {
 		t.Errorf("the real ssh started by zzh must have tried to connect, got:\n%s", output)
+	}
+
+	// With ZZH_SHIM=off the real scp runs alone, with its own ssh.
+	output = runLink(t, shimFolder, "scp", append(env, "ZZH_SHIM=off"),
+		"-v", "-o", "ConnectTimeout=2", "-o", "BatchMode=yes", "nobody@192.0.2.1:file", t.TempDir())
+	if !strings.Contains(output, "Executing: program") || strings.Contains(output, "with space") {
+		t.Errorf("with ZZH_SHIM=off scp must use its own ssh, got:\n%s", output)
 	}
 }

@@ -59,6 +59,16 @@ type Config struct {
 	SSH    SSHConfig    `json:"ssh"`
 	Keys   KeysConfig   `json:"keys"`
 	Output OutputConfig `json:"output"`
+	Shim   ShimConfig   `json:"shim"`
+}
+
+// ShimConfig controls what happens when zzh is started through the ssh,
+// scp and sftp shims of "zzh install --shim" (D-055).
+type ShimConfig struct {
+	// Enabled, when false, makes the shims run the real programs at once
+	// for this user, as if zzh were not installed in their place: useful
+	// with a system-wide installation, where each user can opt out.
+	Enabled bool `json:"enabled"`
 }
 
 // OutputConfig controls how zzh presents its output on a terminal. Output
@@ -168,6 +178,7 @@ func Defaults() Config {
 			Color:   "auto",
 			Stripes: true,
 		},
+		Shim: ShimConfig{Enabled: true},
 	}
 }
 

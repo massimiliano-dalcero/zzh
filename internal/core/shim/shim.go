@@ -32,6 +32,26 @@ const (
 // the zzh command line: "ssh --zzh ls" behaves as "zzh ls".
 const ZzhPrefix = "--zzh"
 
+// PlainPrefix, as the first argument of zzh started as ssh, runs the real
+// ssh at once with the rest of the arguments: "ssh - web01". A lone "-" is
+// not an ssh option, and as first argument it could only be a host named
+// "-", which cannot exist, so it never hides a real ssh command line.
+const PlainPrefix = "-"
+
+// EnvShim set to "off" (or 0, false, no) makes every shim run the real
+// program at once, without zzh: for a terminal session, or for a script that
+// must use the plain ssh together with every program it starts.
+const EnvShim = "ZZH_SHIM"
+
+// DisabledByEnvironment reports whether EnvShim turns the shims off.
+func DisabledByEnvironment() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(EnvShim))) {
+	case "off", "0", "false", "no":
+		return true
+	}
+	return false
+}
+
 // EnvAsSSH tells a zzh process to behave as ssh although it was not started
 // with that name. scp and sftp are given the zzh executable itself as their
 // ssh program (-S), because on Linux and macOS the path of the link is not

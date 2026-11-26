@@ -103,7 +103,9 @@ Usage:
                                   administrator terminal) and put it in PATH;
                                   --shim also makes ssh, scp and sftp run
                                   through zzh (on Windows only with --system);
-                                  "ssh --zzh <args>" then runs "zzh <args>"
+                                  "ssh --zzh <args>" then runs "zzh <args>",
+                                  "ssh - <args>" the real ssh (also:
+                                  ZZH_SHIM=off, shim.enabled false)
   zzh uninstall [--system] --shim [--all]
                                   remove the shims (--all: and zzh itself;
                                   configuration and databases are kept)
@@ -311,6 +313,10 @@ func runConnect(options globalOptions, args []string) error {
 // options, so the prefix can never collide with an ssh command line; zzh
 // subcommands are otherwise not recognized, so that "ssh ls" still means
 // the host "ls" (D-056, D-058).
+//
+// Three ways skip zzh and run the real ssh at once, with the arguments
+// unchanged (D-060): "ssh - <args>" for one command, ZZH_SHIM=off for a
+// session or a script, shim.enabled=false in the configuration for a user.
 func runAsSSH(args []string) error {
 	if len(args) > 0 && args[0] == shim.ZzhPrefix {
 		return run(args[1:])
@@ -318,18 +324,40 @@ func runAsSSH(args []string) error {
 	if err := shim.EnterNested(); err != nil {
 		return err
 	}
+	if len(args) > 0 && args[0] == shim.PlainPrefix {
+		return plainSSH(args[1:])
+	}
+	if shimBypassed() {
+		return plainSSH(args)
+	}
 	session.SkipWithEmptyPassword = true
 	return connectHost(globalOptions{}, args, true)
 }
 
 // runAsCopy is zzh started as "scp" or "sftp" through a shim: the real
-// program runs with zzh as its ssh (see connect.RunCopy).
+// program runs with zzh as its ssh (see connect.RunCopy), or alone when the
+// shims are turned off.
 func runAsCopy(program string, args []string) error {
+	if shimBypassed() {
+		return connect.Run(program, args, nil)
+	}
 	executable, err := shim.Executable()
 	if err != nil {
 		return err
 	}
 	return connect.RunCopy(program, args, executable)
+}
+
+// shimBypassed reports whether the shims are turned off by ZZH_SHIM or by
+// shim.enabled. A configuration that cannot be read does not turn them off:
+// the connection then reports the problem and falls back to the plain ssh
+// anyway.
+func shimBypassed() bool {
+	if shim.DisabledByEnvironment() {
+		return true
+	}
+	loaded, err := config.LoadDefault()
+	return err == nil && !loaded.Config.Shim.Enabled
 }
 
 // plainSSH runs the real ssh with the arguments exactly as received: the
