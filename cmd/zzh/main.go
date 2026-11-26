@@ -34,6 +34,7 @@ import (
 	"zzh/internal/feature/edithost"
 	"zzh/internal/feature/hosts"
 	"zzh/internal/feature/initdb"
+	"zzh/internal/feature/install"
 	"zzh/internal/feature/keys"
 	"zzh/internal/feature/removehost"
 	"zzh/internal/feature/syncout"
@@ -92,6 +93,16 @@ Usage:
   zzh db rm <name>                forget a bookmark (the file is kept)
   zzh db default <name>           choose the database used without --db
 
+  zzh install [--system] [--shim]
+                                  copy this zzh to the user profile (or, with
+                                  --system, for every user: needs sudo or an
+                                  administrator terminal) and put it in PATH;
+                                  --shim also makes ssh, scp and sftp run
+                                  through zzh (on Windows only with --system)
+  zzh uninstall [--system] --shim [--all]
+                                  remove the shims (--all: and zzh itself;
+                                  configuration and databases are kept)
+
   zzh doctor                      check ssh client and configuration
   zzh config path|show|init       inspect or create the config file
   zzh config get <setting>        read one setting (e.g. ssh.use_system_keys)
@@ -135,23 +146,25 @@ var subcommands map[string]func(options globalOptions, args []string) error
 
 func init() {
 	subcommands = map[string]func(options globalOptions, args []string) error{
-		"ls":      runList,
-		"add":     runAdd,
-		"edit":    runEdit,
-		"rm":      runRemove,
-		"alias":   runAlias,
-		"key":     runKey,
-		"sync":    runSync,
-		"unlock":  runUnlock,
-		"lock":    runLock,
-		"status":  runStatus,
-		"daemon":  runDaemon,
-		"init":    runInit,
-		"db":      runDatabases,
-		"doctor":  runDoctor,
-		"config":  runConfig,
-		"version": runVersion,
-		"help":    runHelp,
+		"ls":        runList,
+		"add":       runAdd,
+		"edit":      runEdit,
+		"rm":        runRemove,
+		"alias":     runAlias,
+		"key":       runKey,
+		"sync":      runSync,
+		"unlock":    runUnlock,
+		"lock":      runLock,
+		"status":    runStatus,
+		"daemon":    runDaemon,
+		"init":      runInit,
+		"db":        runDatabases,
+		"doctor":    runDoctor,
+		"install":   runInstall,
+		"uninstall": runUninstall,
+		"config":    runConfig,
+		"version":   runVersion,
+		"help":      runHelp,
 	}
 }
 
@@ -428,6 +441,14 @@ func runAskpass(question string) int {
 	}
 	fmt.Println(answer)
 	return 0
+}
+
+func runInstall(options globalOptions, args []string) error {
+	return install.RunInstall(args, os.Stdout)
+}
+
+func runUninstall(options globalOptions, args []string) error {
+	return install.RunUninstall(args, os.Stdout)
 }
 
 func runList(options globalOptions, args []string) error {

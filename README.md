@@ -42,6 +42,7 @@ $ zzh web01 uptime              # remote command
 - [The master password and the daemon](#the-master-password-and-the-daemon)
 - [Several databases](#several-databases)
 - [Using zzh with git](#using-zzh-with-git)
+- [zzh in place of ssh (shims)](#zzh-in-place-of-ssh-shims)
 - [Exporting to ~/.ssh for the plain ssh](#exporting-to-ssh-for-the-plain-ssh)
 - [Configuration reference](#configuration-reference)
 - [Command reference](#command-reference)
@@ -177,8 +178,8 @@ install:
 | Linux x64 / ARM64 | `zzh-linux-amd64` / `zzh-linux-arm64` |
 | macOS Intel / Apple Silicon | `zzh-darwin-amd64` / `zzh-darwin-arm64` |
 
-Rename it to `zzh` (`zzh.exe` on Windows) and put it in your `PATH` (see
-below). `SHA256SUMS.txt` in the release lets you verify the download:
+Rename it to `zzh` (`zzh.exe` on Windows) and install it with
+`zzh install` (see below). `SHA256SUMS.txt` in the release lets you verify the download:
 
 ```sh
 sha256sum -c SHA256SUMS.txt --ignore-missing            # Linux
@@ -215,27 +216,36 @@ commit it comes from (`zzh v0.9.1+4a0cc78`, `.dirty` with uncommitted
 changes); add `-buildvcs=false` to get exactly the release version, as the
 published binaries do.
 
-### Putting zzh in the PATH
+### Installing: zzh install
 
-On Windows, for the current user:
-
-```powershell
-$dir = "$env:LOCALAPPDATA\Programs\zzh"
-New-Item -ItemType Directory -Force $dir | Out-Null
-Copy-Item zzh.exe $dir
-[Environment]::SetEnvironmentVariable("Path", [Environment]::GetEnvironmentVariable("Path", "User") + ";$dir", "User")
-# open a new terminal
-```
-
-> In PowerShell a program in the current folder must be called as
-> `.\zzh.exe`; once it is in the `PATH`, plain `zzh` works everywhere.
-
-On Linux and macOS:
+zzh installs itself: run the downloaded or built binary with `install`.
 
 ```sh
-mkdir -p ~/.local/bin
-install -m 755 zzh ~/.local/bin/zzh     # make sure ~/.local/bin is in your PATH
+./zzh install                  # for you only, no privileges
+sudo ./zzh install --system    # for every user of the machine
 ```
+
+```powershell
+.\zzh.exe install             # for you only
+.\zzh.exe install --system    # for every user: from a terminal opened as administrator
+```
+
+| | for you (`zzh install`) | for everybody (`--system`) |
+|---|---|---|
+| Windows | `%LOCALAPPDATA%\Programs\zzh\zzh.exe`, added to your user PATH | `C:\Program Files\zzh\zzh.exe`, added to the system PATH |
+| Linux / macOS | `~/.local/bin/zzh` | `/usr/local/bin/zzh` |
+
+Running `install` again from a newer zzh upgrades the installed one. On
+Linux and macOS zzh does not edit shell profiles: if `~/.local/bin` is not
+in your PATH it prints the line to add. On Windows, terminals and editors
+already open keep the old PATH until they are restarted.
+
+> In PowerShell a program in the current folder must be called as
+> `.\zzh.exe`; once installed, plain `zzh` works everywhere.
+
+Configuration and databases live in each user's profile: `install` and
+`uninstall` never touch them. See also
+[zzh in place of ssh](#zzh-in-place-of-ssh-shims) for `--shim`.
 
 Then check the environment:
 
@@ -645,6 +655,9 @@ zzh unlock
 On Windows use forward slashes in the path, e.g.
 `C:/Users/me/AppData/Local/Programs/zzh/zzh.exe`.
 
+With the [shims](#zzh-in-place-of-ssh-shims) installed, step 3 is not
+needed: git runs `ssh`, which is zzh (on Windows through `GIT_SSH`).
+
 ### How git ends up running zzh
 
 For a remote in SSH form (`git@github.com:user/repo.git`), git needs an ssh
@@ -695,6 +708,66 @@ $env:GIT_SSH_COMMAND = "C:/path/to/zzh.exe"; git fetch; Remove-Item Env:GIT_SSH_
 ```
 
 ---
+
+## zzh in place of ssh (shims)
+
+With `--shim`, `zzh install` also creates links named `ssh`, `scp` and
+`sftp` that point to zzh, placed before the real OpenSSH in PATH. Every
+program that runs `ssh` — you in a terminal, scripts, editors, Ansible —
+then goes through zzh without being configured:
+
+```sh
+sudo zzh install --system --shim     # Linux / macOS (per user: zzh install --shim)
+```
+
+```powershell
+zzh install --system --shim          # Windows, administrator terminal
+```
+
+What zzh does when it is started as `ssh`:
+
+- a host stored in KeePass (by name, alias or address) gets its address,
+  user, port, options, key and password from KeePass, as with `zzh <name>`;
+- anything else runs the real ssh **unchanged and silently**: unknown
+  hosts, `ssh -V`, users who never set up zzh (with `--system` the shim
+  serves every user of the machine, root included), and a locked database
+  when nobody can type the password (a background program: a notice, then
+  the plain ssh);
+- zzh subcommands are not recognized: `ssh ls` is the host `ls`.
+
+Started as `scp` or `sftp`, zzh runs the real program with `-S <zzh>`, so
+the copy is done by OpenSSH and the connection by zzh. This is needed
+because scp and sftp do not look for ssh in PATH (the Windows ones run the
+`ssh.exe` of their own folder). A `-S` you pass yourself is respected.
+
+The shims are symbolic links, so they always run the installed zzh, also
+after an upgrade. zzh finds the real ssh by skipping itself in PATH.
+
+| | Shims | How they come first |
+|---|---|---|
+| Linux / macOS | `ssh`, `scp`, `sftp` next to zzh (`/usr/local/bin` or `~/.local/bin`) | `/usr/local/bin` already comes before `/usr/bin`; for `~/.local/bin` zzh tells you if your PATH needs fixing |
+| Windows | `C:\Program Files\zzh\shim\{ssh,scp,sftp}.exe` | the folder is inserted in the system PATH right before `System32\OpenSSH`; `GIT_SSH` is set to the ssh shim |
+
+On Windows the shims need `--system`: the user PATH is always appended
+after the system PATH, which already contains `System32\OpenSSH`, so a
+shim in a user folder would never be found first. Git for Windows puts its
+own folders first and would run its own ssh, hence `GIT_SSH` (left alone if
+you already set it to something else).
+
+What does not go through the shims: programs that run ssh by its full
+path, and programs started before the installation (restart them).
+
+To remove them:
+
+```sh
+zzh uninstall [--system] --shim          # remove the shims, keep zzh
+zzh uninstall [--system] --shim --all    # remove the shims and zzh
+```
+
+zzh never replaces or deletes a file that is not a link to zzh: if an
+`ssh` you installed yourself sits where a shim should go, the installation
+stops and tells you. zzh itself cannot be removed while its shims are
+installed, because `ssh` would then point to a missing file.
 
 ## Exporting to ~/.ssh for the plain ssh
 
@@ -808,6 +881,8 @@ Other environment variables: `ZZH_PASSWORD` (master password, see above),
 | `zzh init <name> <path>` | create a database |
 | `zzh db ls\|add\|rm\|default …` | bookmarked databases |
 | `zzh config path\|show\|init\|get\|set\|unset …` | configuration |
+| `zzh install [--system] [--shim]` | install or upgrade zzh; `--shim`: ssh, scp and sftp run through zzh |
+| `zzh uninstall [--system] --shim [--all]` | remove the shims (`--all`: and zzh) |
 | `zzh doctor` | check ssh, configuration and databases |
 | `zzh version` / `zzh help` | |
 
@@ -887,13 +962,14 @@ internal/core/        building blocks shared by the commands
   localipc/           private temporary named pipes / Unix sockets
   prompt/             terminal questions (hidden passwords, confirmations)
   session/            where the master password comes from; open and modify
+  shim/               zzh started as ssh, scp or sftp; its own real path
   sshcli/             ssh command line parsing, OpenSSH version detection
   sshkey/             key generation and import
   vault/              the KeePass database: hosts, keys, safe writes, snapshots
     vaulttest/        throw-away databases for tests
 internal/feature/     one self-contained module per command
   addhost/ aliases/ configcmd/ connect/ daemoncmd/ dbcmd/ doctor/
-  edithost/ hosts/ initdb/ keys/ removehost/ syncout/
+  edithost/ hosts/ initdb/ install/ keys/ removehost/ syncout/
 ```
 
 Core modules never import feature modules, and feature modules never import
