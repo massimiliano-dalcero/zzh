@@ -348,8 +348,9 @@ Root
         └── laptop
 ```
 
-`zzh init` creates this layout. For an existing database, create the `SSH`,
-`SSH/Hosts` and `SSH/Keys` groups in KeePassXC.
+`zzh init` creates this layout. For an existing database, `zzh db add`
+creates it when the database has no `SSH` group, next to the groups already
+there (see [Several databases](#several-databases)).
 
 ### Host entries
 
@@ -710,7 +711,7 @@ Databases are bookmarked by name in the configuration file.
 
 ```sh
 zzh init work ~/work/servers.kdbx      # create and bookmark
-zzh db add personal ~/vault/ssh.kdbx   # bookmark an existing file
+zzh db add personal ~/vault/ssh.kdbx   # bookmark an existing file (creates the zzh groups if missing)
 zzh db ls                              # * marks the default
 zzh db default work
 zzh db rm personal                     # forgets the bookmark, keeps the file
@@ -721,6 +722,16 @@ zzh --db personal web01
 
 `--db` must come right after `zzh`. The first bookmark becomes the default;
 with a single bookmark and no default, that one is used.
+
+`zzh db add` opens the database (so it asks the master password, and a
+wrong password or a file that is not a KeePass database is reported at
+once) and checks the groups zzh works in:
+
+| The database has | `zzh db add` |
+|---|---|
+| no `SSH` group (e.g. your existing password database) | creates `SSH`, `SSH/Hosts` and `SSH/Keys` next to your groups, with the usual safe write and `.bak` backup, then bookmarks it |
+| `SSH` with `Hosts` and `Keys` | bookmarks it; the file is not rewritten |
+| an `SSH` group without `Hosts` and `Keys` | **stops** without changing the file or saving the bookmark: that group was not made by zzh, and zzh does not add groups inside it. Add `Hosts` and `Keys` in KeePassXC, or choose another group name first with `zzh config set root_group <name>` |
 
 `zzh init` creates the database with the zzh groups, never overwrites an
 existing file, and tunes the key derivation like KeePassXC: Argon2d with
@@ -1262,6 +1273,7 @@ the bookmarked databases and the ssh client.
 | `ssh` does not go through zzh after installing the shims | The program was started before the installation and has the old PATH: restart it. Check with `where.exe ssh` / `command -v ssh` in a new terminal. In a repository with `core.sshCommand` git uses that setting instead. |
 | `ssh ls`: `Could not resolve hostname ls` | Through the shim `ssh` stays ssh: `ls` is a host name. Use `zzh ls`, or `ssh --zzh ls`. |
 | `zzh started itself … times as ssh` | The "real" ssh found in PATH is zzh again (a copy instead of a link, or `ssh.binary` pointing to a shim). Check with `zzh doctor` and `zzh config get ssh.binary`. |
+| `the database already has a group "SSH" without the "Hosts" and "Keys" groups` | `zzh db add` found an `SSH` group zzh did not create. Add `Hosts` and `Keys` inside it in KeePassXC, or `zzh config set root_group <other>` and add the database again. |
 | `access denied in the zzh confirmation` | You pressed Deny, or nobody answered the dialog within 60 seconds. |
 | `a confirmation is required (confirm.mode) but there is no terminal or graphical session to ask it` | A program without a terminal, where no dialog can be shown (a service, a server without display). Run it where you can answer, or `zzh config set confirm.mode never` for unattended use. |
 | A background program asks every time | Choose *Allow for 15 minutes*, or set a longer `confirm.remember_for`; with `confirm.mode never` it is never asked. |

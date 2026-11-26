@@ -8,6 +8,7 @@
 package vaulttest
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -67,7 +68,42 @@ func Modify(path string, change func(v *vault.Vault) error) error {
 		return err
 	}
 	if err := change(v); err != nil {
+		if errors.Is(err, vault.ErrNothingToSave) {
+			return nil
+		}
 		return err
 	}
 	return v.Save(false)
+}
+
+// NewForeignDatabase writes a database that was not created by zzh: its
+// top-level group "Root" holds only empty groups with the given names (for
+// example "Email", or "SSH" without Hosts and Keys).
+func NewForeignDatabase(t testing.TB, groups ...string) string {
+	t.Helper()
+
+	db := gokeepasslib.NewDatabase(gokeepasslib.WithDatabaseKDBXVersion40())
+	db.Credentials = gokeepasslib.NewPasswordCredentials(Password)
+	root := gokeepasslib.NewGroup()
+	root.Name = "Root"
+	for _, name := range groups {
+		group := gokeepasslib.NewGroup()
+		group.Name = name
+		root.Groups = append(root.Groups, group)
+	}
+	db.Content.Root = &gokeepasslib.RootData{Groups: []gokeepasslib.Group{root}}
+	if err := db.LockProtectedEntries(); err != nil {
+		t.Fatalf("cannot lock test database: %v", err)
+	}
+
+	path := filepath.Join(t.TempDir(), "foreign.kdbx")
+	file, err := os.Create(path)
+	if err != nil {
+		t.Fatalf("cannot create test database: %v", err)
+	}
+	defer file.Close()
+	if err := gokeepasslib.NewEncoder(file).Encode(db); err != nil {
+		t.Fatalf("cannot encode test database: %v", err)
+	}
+	return path
 }

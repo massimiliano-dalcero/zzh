@@ -108,6 +108,10 @@ func modifyUnlocked(database config.ResolvedDatabase, password string, backup bo
 		}
 
 		if err := change(v); err != nil {
+			if errors.Is(err, vault.ErrNothingToSave) {
+				// The change found nothing to do: the file is left as is.
+				return nil
+			}
 			return err
 		}
 

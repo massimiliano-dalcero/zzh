@@ -2,28 +2,41 @@ package dbcmd
 
 import (
 	"bytes"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"zzh/internal/core/config"
+	"zzh/internal/core/vault"
+	"zzh/internal/core/vault/vaulttest"
 )
 
-// fixture prepares an empty config path and two database files.
+// fixture prepares an empty config path and two zzh databases.
 func fixture(t *testing.T) (configPath, personal, work string) {
 	t.Helper()
-	dir := t.TempDir()
+	return filepath.Join(t.TempDir(), "config.json"), vaulttest.NewDatabase(t), vaulttest.NewDatabase(t)
+}
 
-	personal = filepath.Join(dir, "personal.kdbx")
-	work = filepath.Join(dir, "work.kdbx")
-	for _, path := range []string{personal, work} {
-		if err := os.WriteFile(path, []byte("x"), 0o600); err != nil {
-			t.Fatalf("cannot create test file: %v", err)
-		}
+// testModify is session.Modify for the test databases: same password for
+// all, no prompt, nothing written when the change says so.
+func testModify(cfg config.Config, name string, change func(v *vault.Vault) error) error {
+	resolved, err := cfg.Resolve(name)
+	if err != nil {
+		return err
 	}
-
-	return filepath.Join(dir, "config.json"), personal, work
+	v, err := vault.Open(resolved.Path, vaulttest.Password, resolved.RootGroup)
+	if err != nil {
+		return err
+	}
+	if err := change(v); err != nil {
+		if errors.Is(err, vault.ErrNothingToSave) {
+			return nil
+		}
+		return err
+	}
+	return v.Save(false)
 }
 
 // run reloads the config file before each command, like the real binary.
@@ -34,8 +47,68 @@ func run(t *testing.T, configPath string, args ...string) (string, error) {
 	loaded := config.Loaded{Config: cfg, Path: configPath, Exists: exists}
 
 	var out bytes.Buffer
-	runErr := Run(args, loaded, err, &out)
+	runErr := Run(args, loaded, err, testModify, &out)
 	return out.String(), runErr
+}
+
+// A database that never saw zzh gets its groups; an existing zzh database
+// is bookmarked without being rewritten.
+func TestAddCreatesTheStructure(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.json")
+	foreign := vaulttest.NewForeignDatabase(t, "Email")
+
+	out, err := run(t, configPath, "add", "mixed", foreign)
+	if err != nil || !strings.Contains(out, "Created the groups SSH/Hosts and SSH/Keys") {
+		t.Fatalf("expected the groups to be created: %v\n%s", err, out)
+	}
+	v, err := vaulttest.Open(foreign)
+	if err != nil || v.Structure() != vault.StructureComplete {
+		t.Fatalf("the database must now have the zzh groups (%v)", err)
+	}
+
+	ready := vaulttest.NewDatabase(t)
+	before, _ := os.ReadFile(ready)
+	out, err = run(t, configPath, "add", "ready", ready)
+	after, _ := os.ReadFile(ready)
+	if err != nil || strings.Contains(out, "Created") || !bytes.Equal(before, after) {
+		t.Fatalf("an existing zzh database must be bookmarked untouched: %v\n%s", err, out)
+	}
+}
+
+// An "SSH" group without Hosts and Keys is not ours: stop, and do not
+// bookmark the database.
+func TestAddStopsOnForeignSSHGroup(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.json")
+	path := vaulttest.NewForeignDatabase(t, "SSH")
+	before, _ := os.ReadFile(path)
+
+	_, err := run(t, configPath, "add", "other", path)
+	if err == nil || !strings.Contains(err.Error(), `group "SSH"`) {
+		t.Fatalf("expected a refusal naming the SSH group, got %v", err)
+	}
+	after, _ := os.ReadFile(path)
+	if !bytes.Equal(before, after) {
+		t.Fatalf("the database must not be changed")
+	}
+	cfg, _, _ := config.Load(configPath)
+	if len(cfg.Databases) != 0 {
+		t.Fatalf("the bookmark must not be saved: %v", cfg.Databases)
+	}
+}
+
+// A wrong password (or a file that is not a database) leaves no bookmark.
+func TestAddRefusesUnreadableDatabase(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.json")
+	notADatabase := filepath.Join(t.TempDir(), "notes.kdbx")
+	os.WriteFile(notADatabase, []byte("x"), 0o600)
+
+	if _, err := run(t, configPath, "add", "broken", notADatabase); err == nil {
+		t.Fatalf("an unreadable file must be refused")
+	}
+	cfg, _, _ := config.Load(configPath)
+	if len(cfg.Databases) != 0 {
+		t.Fatalf("the bookmark must not be saved")
+	}
 }
 
 func TestBookmarkLifecycle(t *testing.T) {

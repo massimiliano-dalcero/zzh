@@ -93,7 +93,9 @@ Usage:
 
   zzh init <name> <path.kdbx>     create a new database and bookmark it
   zzh db ls [--grep]              list the bookmarked databases
-  zzh db add <name> <path.kdbx>   bookmark an existing database
+  zzh db add <name> <path.kdbx>   bookmark an existing database (creates
+                                  SSH/Hosts and SSH/Keys when there is
+                                  no SSH group)
   zzh db rm <name>                forget a bookmark (the file is kept)
   zzh db default <name>           choose the database used without --db
 
@@ -716,7 +718,10 @@ func runInit(_ globalOptions, args []string) error {
 
 func runDatabases(_ globalOptions, args []string) error {
 	loaded, err := config.LoadDefault()
-	return dbcmd.Run(args, loaded, err, os.Stdout)
+	modify := func(cfg config.Config, name string, change func(v *vault.Vault) error) error {
+		return session.Modify(cfg, name, change)
+	}
+	return dbcmd.Run(args, loaded, err, modify, os.Stdout)
 }
 
 func runDoctor(_ globalOptions, _ []string) error {
