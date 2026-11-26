@@ -430,7 +430,7 @@ so `zzh web01 test -f /etc/foo && echo present` works in scripts.
 ## Managing hosts
 
 ```sh
-zzh ls [--tag prod]...                         # list (filters combine)
+zzh ls [--tag prod]... [--grep]                # list (filters combine)
 
 zzh add <name> <[user@]address[:port]>         # create
         [--user u] [--port n] [--folder path] [--key name]
@@ -447,6 +447,18 @@ zzh alias add <host> <alias>...                # more names for the same entry
 zzh alias rm <alias>...
 
 zzh rm <host> [--yes]                          # to the recycle bin, after confirmation
+```
+
+On a terminal `zzh ls` draws a table with colors: host names in bold, a
+stored login password as a highlighted **stored** (the password itself is
+never shown), tags in cyan, broken entries in red, and alternate rows on a
+slightly different background. With `--grep`, or whenever the output goes
+to a pipe or a file, it prints one line per host instead, fields separated
+by a tab, `-` for empty fields, no header and no colors:
+
+```sh
+zzh ls | grep stored              # hosts with a stored password
+zzh ls --grep | cut -f1,5         # name and address
 ```
 
 Examples:
@@ -845,6 +857,8 @@ zzh config unset lock.idle_timeout                                        # back
 | `ssh.extra_options` | `[]` | `Key=Value` options added to every connection |
 | `keys.default_type` | `ed25519` | type for `zzh key gen` |
 | `keys.rsa_bits` | `4096` | RSA size for `zzh key gen --type rsa` |
+| `output.color` | `auto` | colors on a terminal (`auto`, also off when `NO_COLOR` is set), `always` or `never`; pipes and files never get colors |
+| `output.stripes` | `true` | alternate background for table rows (turn off on light themes if it reads badly) |
 
 Durations are written as `30s`, `15m`, `8h`, `1h30m`.
 
@@ -872,7 +886,7 @@ Other environment variables: `ZZH_PASSWORD` (master password, see above),
 | Command | |
 |---|---|
 | `zzh <target> [--key k] [ssh options] [command]` | connect (name, alias, address; otherwise plain ssh); `--key` picks a KeePass key for this connection |
-| `zzh ls [--tag t]...` | list hosts |
+| `zzh ls [--tag t]... [--grep]` | list hosts (`--grep`: one tab-separated line per host) |
 | `zzh add …` / `zzh edit …` / `zzh rm <host>` | create, change, remove hosts |
 | `zzh alias add <host> <alias>...` / `zzh alias rm <alias>...` | host aliases |
 | `zzh key gen\|import\|ls\|pub\|use\|rm …` | keys |
@@ -965,6 +979,8 @@ internal/core/        building blocks shared by the commands
   shim/               zzh started as ssh, scp or sftp; its own real path
   sshcli/             ssh command line parsing, OpenSSH version detection
   sshkey/             key generation and import
+  style/              meaningful colors on terminals (NO_COLOR, output.color)
+  table/              boxed tables on terminals, tab-separated lines for grep
   vault/              the KeePass database: hosts, keys, safe writes, snapshots
     vaulttest/        throw-away databases for tests
 internal/feature/     one self-contained module per command

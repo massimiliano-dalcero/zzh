@@ -15,6 +15,7 @@ import (
 	"zzh/internal/core/daemon"
 	"zzh/internal/core/prompt"
 	"zzh/internal/core/shim"
+	"zzh/internal/core/style"
 	"zzh/internal/core/vault"
 )
 
@@ -63,7 +64,7 @@ func OpenVault(cfg config.Config, databaseName string) (*vault.Vault, error) {
 
 	if creds.kept.Snapshot != nil {
 		if creds.kept.Stale != "" {
-			fmt.Fprintln(os.Stderr, "zzh: warning, showing the last readable version:", creds.kept.Stale)
+			style.PrintNotice(os.Stderr, "warning, showing the last readable version: "+creds.kept.Stale)
 		}
 		v, err := vault.OpenSnapshot(creds.kept.Snapshot, creds.kept.SnapshotKey, creds.database.Path, creds.database.RootGroup)
 		if err == nil {
@@ -71,7 +72,7 @@ func OpenVault(cfg config.Config, databaseName string) (*vault.Vault, error) {
 		}
 		// A copy that cannot be opened is not worth failing for: the file
 		// is opened directly below, with the same password.
-		fmt.Fprintln(os.Stderr, "zzh:", err)
+		style.PrintNotice(os.Stderr, err.Error())
 	}
 
 	v, err := vault.Open(creds.database.Path, creds.password, creds.database.RootGroup)
@@ -125,7 +126,7 @@ func obtain(cfg config.Config, databaseName string) (credentials, error) {
 
 	if environmentPassword != "" {
 		if cfg.WarnEnvPassword {
-			fmt.Fprintf(os.Stderr, "zzh: using the master password from %s (disable this notice with \"zzh config set warn_env_password false\")\n", EnvPassword)
+			style.PrintNotice(os.Stderr, fmt.Sprintf("using the master password from %s (disable this notice with \"zzh config set warn_env_password false\")", EnvPassword))
 		}
 		return credentials{database: database, password: environmentPassword, source: fromEnvironment}, nil
 	}
@@ -168,7 +169,7 @@ func (c credentials) afterUse(cfg config.Config, err error) error {
 			if rememberErr := remember(cfg, c.database.Path, c.password); rememberErr != nil {
 				// The command itself succeeded: the daemon is a comfort, so
 				// its failure is reported but does not fail the command.
-				fmt.Fprintln(os.Stderr, "zzh: the password will be asked again:", rememberErr)
+				style.PrintNotice(os.Stderr, "the password will be asked again: "+rememberErr.Error())
 			}
 		}
 		return nil

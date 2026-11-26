@@ -23,6 +23,7 @@ import (
 	"zzh/internal/core/session"
 	"zzh/internal/core/shim"
 	"zzh/internal/core/sshcli"
+	"zzh/internal/core/style"
 	"zzh/internal/core/vault"
 	"zzh/internal/feature/addhost"
 	"zzh/internal/feature/aliases"
@@ -47,8 +48,10 @@ Usage:
   zzh [--db name] <name> [--key k] [ssh options] [command]
                                   connect to the host stored as <name>
                                   (--key: use the KeePass key k this time)
-  zzh [--db name] ls [--tag name]...
+  zzh [--db name] ls [--tag name]... [--grep]
                                   list the hosts stored in KeePass
+                                  (--grep, or a pipe: one tab-separated line
+                                  per host, for grep/cut/awk)
   zzh [--db name] add <name> <[user@]address[:port]> [--user u] [--port n]
           [--folder path] [--key name] [--alias a]... [--tag t]...
           [--option K=V]... [--password]
@@ -186,9 +189,11 @@ func main() {
 	// First thing: take ZZH_PASSWORD out of the environment, before any
 	// child process (ssh, icacls...) could inherit it (D-028).
 	if err := session.TakePasswordFromEnvironment(); err != nil {
-		fmt.Fprintln(os.Stderr, "zzh:", err)
+		style.PrintError(os.Stderr, err.Error())
 		os.Exit(1)
 	}
+
+	configureOutput()
 
 	if isAskpassInvocation(os.Args[1:]) {
 		os.Exit(runAskpass(os.Args[1]))
@@ -215,9 +220,21 @@ func main() {
 	}
 
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "zzh:", err)
+		style.PrintError(os.Stderr, err.Error())
 		os.Exit(1)
 	}
+}
+
+// configureOutput applies the output settings (colors, table stripes)
+// before anything is printed. A configuration that cannot be read is
+// ignored here: the command that needs it reports the problem itself, and
+// until then the defaults apply.
+func configureOutput() {
+	loaded, err := config.LoadDefault()
+	if err != nil {
+		return
+	}
+	style.Configure(loaded.Config.Output.Color, loaded.Config.Output.Stripes)
 }
 
 func run(args []string) error {
@@ -329,7 +346,7 @@ func connectHost(options globalOptions, args []string, asShim bool) error {
 	loaded, err := config.LoadDefault()
 	if err != nil {
 		if asShim {
-			fmt.Fprintf(os.Stderr, "zzh: %v; running plain ssh\n", err)
+			style.PrintNotice(os.Stderr, err.Error()+"; running plain ssh")
 			return plainSSH(args)
 		}
 		return err
@@ -348,7 +365,7 @@ func connectHost(options globalOptions, args []string, asShim bool) error {
 		// password typed now, a damaged file) are reported, because the
 		// user is there and expects zzh to work.
 		if asShim && errors.Is(err, session.ErrLocked) {
-			fmt.Fprintf(os.Stderr, "zzh: %v; running plain ssh\n", err)
+			style.PrintNotice(os.Stderr, err.Error()+"; running plain ssh")
 			return connect.Run(loaded.Config.SSH.Binary, args, nil)
 		}
 		return err
@@ -377,7 +394,7 @@ func connectHost(options globalOptions, args []string, asShim bool) error {
 			if !loaded.Config.SSH.PassthroughUnknownHosts {
 				return fmt.Errorf("host %q is not in KeePass (neither a name nor an address)", invocation.Target)
 			}
-			fmt.Fprintf(os.Stderr, "zzh: %q is not in KeePass, running plain ssh (save it with \"zzh add\")\n", invocation.Target)
+			style.PrintNotice(os.Stderr, fmt.Sprintf("%q is not in KeePass, running plain ssh (save it with \"zzh add\")", invocation.Target))
 		}
 		return connect.Passthrough(loaded.Config.SSH.Binary, invocation, args, chosenKey, invocation.KeyName)
 	}
@@ -395,7 +412,7 @@ func connectHost(options globalOptions, args []string, asShim bool) error {
 			return err
 		}
 	case host.KeyID != "":
-		fmt.Fprintf(os.Stderr, "zzh: the key associated with %q no longer exists in KeePass, connecting without it\n", host.Name)
+		style.PrintNotice(os.Stderr, fmt.Sprintf("the key associated with %q no longer exists in KeePass, connecting without it", host.Name))
 	}
 
 	// ssh will run this same executable as askpass program; through a shim

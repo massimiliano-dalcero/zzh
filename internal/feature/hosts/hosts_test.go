@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"zzh/internal/core/style"
 	"zzh/internal/core/vault"
 )
 
@@ -87,5 +88,34 @@ func TestListShowsPasswordPresenceOnly(t *testing.T) {
 		if strings.HasPrefix(line, "without ") && strings.Contains(line, "stored") {
 			t.Fatalf("no flag without a password:\n%s", text)
 		}
+	}
+}
+
+// The plain layout (pipes, --grep): one tab-separated line per host, every
+// column present, "-" for empty fields, no header.
+func TestListGrepLayout(t *testing.T) {
+	var out bytes.Buffer
+	hostList := []vault.Host{{Name: "web01", Folder: "prod", Address: "10.0.0.1", Port: 22, User: "deploy",
+		Password: "x", Tags: []string{"prod", "web"}}}
+	if err := Run([]string{"--grep"}, hostList, &out); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	expected := "web01\t-\tprod\tdeploy\t10.0.0.1:22\t-\tstored\tprod,web\n"
+	if out.String() != expected {
+		t.Fatalf("got %q, expected %q", out.String(), expected)
+	}
+}
+
+// On a terminal "stored" must stand out: it is painted as a stored secret.
+func TestListHighlightsStoredPassword(t *testing.T) {
+	s := style.Forced(true)
+	hostList := []vault.Host{{Name: "with", Address: "a.lan", Password: "x"}}
+
+	var out bytes.Buffer
+	if err := buildTable(hostList, nil, s).RenderBoxedForTest(&out, s); err != nil {
+		t.Fatalf("render failed: %v", err)
+	}
+	if !strings.Contains(out.String(), s.Stored("stored")) {
+		t.Fatalf("stored password not highlighted:\n%q", out.String())
 	}
 }

@@ -13,6 +13,7 @@ import (
 
 	"zzh/internal/core/config"
 	"zzh/internal/core/sshcli"
+	"zzh/internal/core/style"
 )
 
 // reporter prints one line per check and remembers whether any failed.
@@ -23,13 +24,16 @@ type reporter struct {
 	failed bool
 }
 
+// check prints one result. On a terminal the mark is green or red and the
+// commands suggested in the message ("zzh init …") are highlighted.
 func (r *reporter) check(ok bool, format string, values ...any) {
-	mark := "ok  "
+	s := style.For(r.out)
+	mark := s.Success("ok  ")
 	if !ok {
-		mark = "FAIL"
+		mark = s.Error("FAIL")
 		r.failed = true
 	}
-	fmt.Fprintf(r.out, "[%s] %s\n", mark, fmt.Sprintf(format, values...))
+	fmt.Fprintf(r.out, "[%s] %s\n", mark, s.Commands(fmt.Sprintf(format, values...)))
 }
 
 // Run performs all checks and writes the report to out. It returns an error

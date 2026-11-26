@@ -58,6 +58,21 @@ type Config struct {
 	Lock   LockConfig   `json:"lock"`
 	SSH    SSHConfig    `json:"ssh"`
 	Keys   KeysConfig   `json:"keys"`
+	Output OutputConfig `json:"output"`
+}
+
+// OutputConfig controls how zzh presents its output on a terminal. Output
+// sent to a pipe or a file is never colored, whatever these say, so that
+// scripts and git always get plain text.
+type OutputConfig struct {
+	// Color is "auto" (colors on a terminal, unless the NO_COLOR environment
+	// variable is set), "always" or "never".
+	Color string `json:"color"`
+
+	// Stripes gives alternate table rows a subtly different background, to
+	// follow long rows across the screen. Users of light terminal themes
+	// may prefer to turn it off.
+	Stripes bool `json:"stripes"`
 }
 
 // LockConfig controls when the daemon forgets the unlocked database.
@@ -148,6 +163,10 @@ func Defaults() Config {
 		Keys: KeysConfig{
 			DefaultType: "ed25519",
 			RSABits:     4096,
+		},
+		Output: OutputConfig{
+			Color:   "auto",
+			Stripes: true,
 		},
 	}
 }
@@ -254,6 +273,12 @@ func (c Config) Validate() error {
 		if !strings.Contains(option, "=") {
 			return fmt.Errorf("ssh.extra_options: %q must be in the form Key=Value", option)
 		}
+	}
+
+	switch c.Output.Color {
+	case "auto", "always", "never":
+	default:
+		return fmt.Errorf("output.color %q is not valid (use auto, always or never)", c.Output.Color)
 	}
 
 	switch c.Keys.DefaultType {

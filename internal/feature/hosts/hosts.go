@@ -2,49 +2,72 @@
 package hosts
 
 import (
-	"errors"
 	"fmt"
 	"io"
 	"strconv"
 	"strings"
-	"text/tabwriter"
 
+	"zzh/internal/core/cliflags"
+	"zzh/internal/core/style"
+	"zzh/internal/core/table"
 	"zzh/internal/core/vault"
 )
 
-// Run prints the hosts as an aligned table.
+// Run prints the hosts: a boxed, colored table on a terminal, or one
+// tab-separated line per host with --grep or when the output is a pipe or a
+// file (see the table package).
 //
 // args may contain "--tag <name>" (repeatable): only hosts carrying all the
 // given tags are listed. Invalid entries are listed too, with their problem,
 // so that the user can fix them in KeePassXC.
 func Run(args []string, hostList []vault.Host, out io.Writer) error {
-	tags, err := parseTagFilter(args)
+	parsed, err := cliflags.Parse(args, cliflags.Spec{Values: []string{"tag"}, Switches: []string{"grep"}})
 	if err != nil {
-		return err
+		return fmt.Errorf("%w (usage: zzh ls [--tag name]... [--grep])", err)
+	}
+	if len(parsed.Positional) > 0 {
+		return fmt.Errorf("unknown argument %q (usage: zzh ls [--tag name]... [--grep])", parsed.Positional[0])
 	}
 
-	table := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(table, "NAME\tALIASES\tFOLDER\tUSER\tADDRESS\tKEY\tPASSWORD\tTAGS")
+	return buildTable(hostList, parsed.Values("tag"), style.For(out)).Render(out, parsed.Switch("grep"))
+}
+
+// buildTable turns the hosts into table rows, colored by meaning: the name
+// in bold, the folder dimmed, a stored password in bold magenta so that it
+// is never overlooked, tags in cyan, problems in red.
+func buildTable(hostList []vault.Host, tags []string, s style.Styler) table.Table {
+	t := table.Table{Headers: []string{"NAME", "ALIASES", "FOLDER", "USER", "ADDRESS", "KEY", "PASSWORD", "TAGS"}}
 
 	for _, host := range hostList {
 		if !hasAllTags(host, tags) {
 			continue
 		}
 
-		address := host.Address
+		address := table.Plain(host.Address)
 		if host.Port != 0 {
-			address += ":" + strconv.Itoa(host.Port)
+			address.Text += ":" + strconv.Itoa(host.Port)
 		}
 		if host.Problem != "" {
-			address = "INVALID: " + host.Problem
+			address = table.Cell{Text: "INVALID: " + host.Problem, Paint: s.Error}
 		}
 
-		fmt.Fprintf(table, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
-			host.Name, strings.Join(host.Aliases, ","), host.Folder, host.User, address,
-			keyLabel(host), passwordLabel(host), strings.Join(host.Tags, ","))
-	}
+		key := table.Plain(keyLabel(host))
+		if host.KeyID != "" && host.KeyName == "" {
+			key.Paint = s.Error
+		}
 
-	return table.Flush()
+		t.Add(
+			table.Cell{Text: host.Name, Paint: s.Name},
+			table.Plain(strings.Join(host.Aliases, ",")),
+			table.Cell{Text: host.Folder, Paint: s.Dim},
+			table.Plain(host.User),
+			address,
+			key,
+			table.Cell{Text: passwordLabel(host), Paint: s.Stored},
+			table.Cell{Text: strings.Join(host.Tags, ","), Paint: s.Tag},
+		)
+	}
+	return t
 }
 
 // passwordLabel tells whether a login password is stored, never what it is:
@@ -68,24 +91,6 @@ func keyLabel(host vault.Host) string {
 	default:
 		return host.KeyName
 	}
-}
-
-// parseTagFilter reads the "--tag <name>" arguments.
-func parseTagFilter(args []string) ([]string, error) {
-	var tags []string
-
-	for index := 0; index < len(args); index++ {
-		if args[index] != "--tag" {
-			return nil, fmt.Errorf("unknown argument %q (usage: zzh ls [--tag name]...)", args[index])
-		}
-		if index+1 >= len(args) {
-			return nil, errors.New("--tag requires a value")
-		}
-		index++
-		tags = append(tags, args[index])
-	}
-
-	return tags, nil
 }
 
 // hasAllTags compares tags case-insensitively: KeePassXC users often type
